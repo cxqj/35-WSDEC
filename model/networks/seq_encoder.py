@@ -16,12 +16,12 @@ class RNNSeqEncoder(nn.Module):
     """
     def __init__(self, input_dim, hidden_dim, rnn_cell, n_layers, bidirectional, rnn_dropout, use_residual):
         """
-        :param input_dim:
-        :param hidden_dim:
-        :param rnn_cell:
-        :param n_layers:
-        :param rnn_dropout:
-        :param use_residual:
+        :param input_dim: 500
+        :param hidden_dim: 512
+        :param rnn_cell: gru
+        :param n_layers: 1
+        :param rnn_dropout: 0.3
+        :param use_residual: True
         """
         super(RNNSeqEncoder, self).__init__()
         if rnn_cell.lower() == 'rnn':
@@ -39,7 +39,7 @@ class RNNSeqEncoder(nn.Module):
             if input_dim == hidden_dim:
                 self.linear = Identity()
             else:
-                self.linear = nn.Linear(input_dim, hidden_dim, bias=False)
+                self.linear = nn.Linear(input_dim, hidden_dim, bias=False)  # 500-->512
             self.forward = self._forward_residual
         else:
             self.forward = self._forward
@@ -47,7 +47,8 @@ class RNNSeqEncoder(nn.Module):
     def forward(self, *inputs):
         raise NotImplementedError
 
-    def _forward_residual(self, input_features):
+    # 使用残差连接的前向传播
+    def _forward_residual(self, input_features): #输入视频特征
         """
         :param input_features: (batch_size, seq_len, feature_dim)
         :return:
@@ -57,7 +58,7 @@ class RNNSeqEncoder(nn.Module):
         hidden_list = []
         output_list = []
         hidden = None
-        self.rnn_cell.flatten_parameters()
+        self.rnn_cell.flatten_parameters() #flatten_parameters() in RNNs for contiguous memory
         for i in range(input_features.size(1)):
             output, hidden = self.rnn_cell(input_features[:, i, :].unsqueeze(1), hidden)
             residual_output = self.linear(input_features[:, i, :].unsqueeze(1)) + output
@@ -65,7 +66,7 @@ class RNNSeqEncoder(nn.Module):
             hidden_list.append(hidden.unsqueeze(2))  # batch, 1, ~ * hidden_dim
         return torch.cat(output_list, dim=1), torch.cat(hidden_list, dim=2)
 
-    def _forward(self, input_features):
+    def _forward(self, input_features): 
         """
         :param input_features: (batch_size, seq_len, feature_dim)
         :return:
