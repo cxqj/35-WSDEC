@@ -37,7 +37,7 @@ class AttentionMean(Attention):
         res = feature_masked_sum / feature_masked_weight
         return res, mask.squeeze(2)
 
-
+#论文公式(7),(8)对视觉特征和语句特征进行attention
 class AttentionType0(Attention):
     """
     a_i = (f_i * W * hidden) / sqrt(d_k))
