@@ -41,6 +41,7 @@ class CaptionGenerator(nn.Module):
         self.decoder = RNNSeqDecoder(hidden_dim + hidden_dim*len(context_type), hidden_dim, sent_vocab_size,
                                      sent_embedding_dim, attention, max_cap_length, rnn_cell, rnn_layer, rnn_dropout)
 
+    # 测试时使用了集束搜索
     def forward(self, video_feat, video_length, video_mask, temp_seg, seg_gather_idx, sent=None, beam_size=3):
         """
         :param video_feat:      (batch_video, length_video, feature_dim)
@@ -55,7 +56,7 @@ class CaptionGenerator(nn.Module):
         """
 
         # feature encoding
-        video_feature, video_hidden = self.video_encoder(video_feat)
+        video_feature, video_hidden = self.video_encoder(video_feat)  # video_feature:(B,T,512)  video_hidden:(directions*layers, batch, length, hidden_dim)
 
         # convert batch video to batch caption
         video_feature = video_feature.index_select(dim=0, index=seg_gather_idx)
@@ -66,7 +67,7 @@ class CaptionGenerator(nn.Module):
 
         # select decoder initial hidden state
         end_index = self.end_index_extractor(temp_seg, video_seq_len)  # non-differential operation!!!
-        sz0, sz1, sz2, sz3 = video_hidden.size()
+        sz0, sz1, sz2, sz3 = video_hidden.size()   # (1,B,T,C)
         gather_index = end_index.view(1, -1, 1, 1).expand(sz0, sz1, 1, sz3)
         decoder_init_hidden = torch.gather(video_hidden, dim=2, index=gather_index).squeeze(2)
 
