@@ -5,7 +5,7 @@ from torch.autograd import Variable
 import os
 import random
 
-
+# 从多个GPU中选择剩余内存最大的一个的id
 def set_device(logger, id=-1):
     logger.info('*' * 100)
 
@@ -112,7 +112,7 @@ def refine_temporal_segment(ts_old, ts_new, ts_gather_idx, iou_thres):
     :param ts_new:          (batch, 2), cw format (0, 1)
     :param ts_gather_idx:   (batch, )
     :return:
-        ts_refined: (new_batch, 2)
+        ts_refined: (new_batch, 2)  ts:time segment
         ts_gather_idx_refined, (new_batch, )
     """
     ts_new_se = cw2se(ts_new)
@@ -128,12 +128,12 @@ def refine_temporal_segment(ts_old, ts_new, ts_gather_idx, iou_thres):
             # ts_refined[idx2] = [Variable(FloatTensor([0, 1-DELTA])), ]  # add [0, 1] to avoid empty set
             ts_new_gather_idx.append(idx2)
         else:
-            ts_temp1 = torch.stack(ts_refined[idx2], dim=0)
-            ts_temp2 = ts_new_se[idx1].unsqueeze(0).expand_as(ts_temp1)
+            ts_temp1 = torch.stack(ts_refined[idx2], dim=0)  # 已有的
+            ts_temp2 = ts_new_se[idx1].unsqueeze(0).expand_as(ts_temp1) # 新的
             ious = compute_iou(ts_temp1, ts_temp2)  # batch
             max_iou, max_iou_idx = ious.max(0)
             max_iou, max_iou_idx = max_iou.cpu().data[0], max_iou_idx.cpu().data[0]
-            if max_iou > iou_thres:
+            if max_iou > iou_thres: # 0.9
                 ts_refined[idx2][max_iou_idx] = temporal_segment_merge(ts_new_se[idx1], ts_refined[idx2][max_iou_idx])
             else:
                 ts_refined[idx2].append(ts_new_se[idx1])
