@@ -29,11 +29,11 @@ class Attention(nn.Module):
         """
         raise NotImplementedError()
 
-
+#对应论文公式(12)
 class AttentionMean(Attention):
     def forward(self, feature, hidden, mask, pe_size=-1):
         feature_masked_sum = torch.sum(feature * mask, dim=1)  # batch, feature_dim
-        feature_masked_weight = torch.sum(mask, dim=1) + DELTA  # batch, 1
+        feature_masked_weight = torch.sum(mask, dim=1) + DELTA  # batch, 1  DELTA=1e-4
         res = feature_masked_sum / feature_masked_weight
         return res, mask.squeeze(2)
 
@@ -128,9 +128,9 @@ class AttentionType2(Attention):
         return res, alpha.squeeze(2)
 
 # Attention With temporal segments
-
+# 对应论文公式(11)
 class ContextMaskC(nn.Module):
-    def __init__(self, scale):
+    def __init__(self, scale):  #scale=0.1
         super(ContextMaskC, self).__init__()
         self.scale = scale
 
@@ -179,11 +179,11 @@ class ContextMaskR(nn.Module):
 class AttentionMask(nn.Module):
     def __init__(self, feature_dim, hidden_dim, attention_type, context_type, scale):
         """
-        :param feature_dim:
-        :param hidden_dim:  pls arrange the size of hidden to the specific format
-        :param attention_type:
-        :param context_type:
-        :param scale:
+        :param feature_dim: 512
+        :param hidden_dim:  pls arrange the size of hidden to the specific format  512
+        :param attention_type: mean
+        :param context_type: clr
+        :param scale: 0.1
         """
         super(AttentionMask, self).__init__()
         self.feature_dim = feature_dim
@@ -202,7 +202,7 @@ class AttentionMask(nn.Module):
             self.forward = self._forwardcl
         elif self.context_type == 'clr':
             self.mask_c = ContextMaskC(scale)
-            self.attention_c = self._build_attention(attention_type)
+            self.attention_c = self._build_attention(attention_type)  #attention_type=mean
             self.mask_r = ContextMaskR(scale)
             self.attention_r = self._build_attention(attention_type)
             self.mask_l = ContextMaskL(scale)
@@ -213,7 +213,7 @@ class AttentionMask(nn.Module):
 
     def _build_attention(self, attention_type):
         if attention_type.lower() == 'mean':
-            return AttentionMean(self.feature_dim, self.hidden_dim)
+            return AttentionMean(self.feature_dim, self.hidden_dim)  #(512,512)
         elif attention_type.lower() == 'type0':
             return AttentionType0(self.feature_dim, self.hidden_dim)
         elif attention_type.lower() == 'type1':
