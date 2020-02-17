@@ -114,3 +114,4 @@ class CaptionGenerator(nn.Module):
         return - (prob * caption_mask).sum() / prob.size(0)
         return - (prob * caption_mask).sum() / caption_mask.sum()
         return - (prob * caption_mask).sum() / caption_prob.size(0)
+    
