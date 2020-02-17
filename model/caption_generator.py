@@ -9,7 +9,15 @@ from .networks.seq_decoder import RNNSeqDecoder
 class CaptionGenerator(nn.Module):
     """
     generate caption sentence given video and temporal segment
+    hidden_dim=512
+    video_feature_dim=500
+    dropout=0.3  
+    attention_type=mean 
+    context_type=clr 
+    scale=0.1
+    sent_embedding_dim=512
     """
+    
     def __init__(self, hidden_dim, rnn_layer, rnn_cell, rnn_dropout, bidirectional, attention_type, context_type, scale,
                  sent_vocab_size, sent_embedding_dim, video_feature_dim, video_use_residual, max_cap_length):
         """
@@ -27,7 +35,7 @@ class CaptionGenerator(nn.Module):
         resolved_hidden_dim = hidden_dim*rnn_layer*(2 if bidirectional else 1)
 
         # soft_mask attention module
-        attention = AttentionMask(hidden_dim, resolved_hidden_dim, attention_type, context_type, scale)
+        attention = AttentionMask(hidden_dim, resolved_hidden_dim, attention_type, context_type, scale)  #用于解码器
 
         # caption generator
         self.decoder = RNNSeqDecoder(hidden_dim + hidden_dim*len(context_type), hidden_dim, sent_vocab_size,
