@@ -165,3 +165,4 @@ class RNNSeqMaskEncoder(nn.Module):
 
 # class CNNSeqEncoder(nn.Module):
 #     raise NotImplementedError
+
