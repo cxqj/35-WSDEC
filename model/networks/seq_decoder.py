@@ -28,13 +28,13 @@ class RNNSeqDecoder(nn.Module):
         if embedding is not None:
             self.embedding = embedding
         else:
-            self.embedding = nn.Embedding(vocab_size, vocab_embedding_dim)
+            self.embedding = nn.Embedding(vocab_size, vocab_embedding_dim) #(6000,512)
 
         # attention
         self.attention_module = attention_module
 
         # output layer
-        self.output_layer = nn.Linear(hidden_dim, vocab_size)
+        self.output_layer = nn.Linear(hidden_dim, vocab_size) #512-->6000
 
     def forward(self, encoder_output, decoder_init_hidden, encoding_mask, temp_seg, ref_caption=None, beam_size=3):
         """
