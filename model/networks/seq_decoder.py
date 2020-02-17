@@ -144,6 +144,7 @@ class RNNSeqDecoder(nn.Module):
         final_pred.append(Variable(torch.zeros(batch_size, 1).long().cuda()) + EOS_ID)
         for step in range(self.max_cap_length, 0, -1):
             if step in candidate_score_dict:  # we find end index
+                # max()第一个返回值为最大数的值，第二个数为最大值所在的索引
                 max_score, true_idx = torch.cat([candidate_score_dict[step], max_score.unsqueeze(1)], dim=1).max(1)  # beam_size + 1
                 current_idx[true_idx != beam_size] = true_idx[true_idx != beam_size]
                 seq_length[true_idx != beam_size] = 0
@@ -158,4 +159,4 @@ class RNNSeqDecoder(nn.Module):
         caption_mask_helper = Variable(torch.LongTensor(range(self.max_cap_length + 2)).unsqueeze(0).repeat(batch_size, 1).cuda())
         caption_mask[caption_mask_helper < seq_length.unsqueeze(1)] = 1
 
-        return None, final_pred.detach(), seq_length.detach(), caption_mask.detach()
+        return None, final_pred.detach(), seq_length.detach(), caption_mask.detach()  #detach返回一个新的从当前图中分离的 Variable，返回的 Variable 永远不会需要梯度
