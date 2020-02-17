@@ -19,7 +19,7 @@ def train(model, data_loader, params, logger, step, optimizer):
 
     logger.info('learning rate:' + '*' * 86)
     logger.info('training on optimizing caption generation')
-    for param_group in optimizer.param_groups:
+    for param_group in optimizer.param_groups:  #optimizer中的参数是分组的
         logger.info('  ' * 7 + '|%s: %s,', param_group['name'], param_group['lr'])
     logger.info('*' * 100)
 
@@ -39,8 +39,8 @@ def train(model, data_loader, params, logger, step, optimizer):
         ts_seq[:, 0] = 0
         ts_seq[:, 1] = 1
         # forward
-        video_seq_len, _ = video_len.index_select(dim=0, index=sent_gather_idx).chunk(2, dim=1)
-        ts_seq = se2cw(ts_seq)  # normalized in (0, 1) cw format.
+        video_seq_len, _ = video_len.index_select(dim=0, index=sent_gather_idx).chunk(2, dim=1)  # (sequence length, true length)
+        ts_seq = se2cw(ts_seq)  # normalized in (0, 1) cw format. 转换为中心点和宽度的格式
         caption_prob, _, _, _ = model.forward(video_feat, video_len, video_mask, ts_seq, sent_gather_idx, sent_feat)
 
         # backward
@@ -96,7 +96,7 @@ def eval(model, data_loader, params, logger, step, saver):
         ts_seq = se2cw(ts_seq)  # normalized in (0, 1) cw format.
         _, caption_pred, _, _ = model.forward(video_feat, video_len, video_mask, ts_seq, sent_gather_idx)
 
-        if params['batch_log_interval'] != -1 and idx % params['batch_log_interval'] == 0:
+        if params['batch_log_interval'] != -1 and idx % params['batch_log_interval'] == 0:  #batch_log_interval=10
             logger.info('test: epoch[%05d], batch[%04d/%04d], elapsed time=%0.4fs',
                         step, idx, len(data_loader), time.time() - batch_time)
 
@@ -125,13 +125,14 @@ def construct_model(params, saver, logger):
     if params['model'] != "CaptionGenerator":
         raise Exception('Model Not Implemented')
 
+    # dropout=0.3  attention_type=mean context_type=clr softmax_scale=0.1
     model = CaptionGenerator(params['hidden_dim'], params['rnn_layer'], params['rnn_cell'], params['rnn_dropout'],
                              params['bidirectional'], params['attention_type'], params['context_type'],
                              params['softmask_scale'], params['vocab_size'], params['sent_embedding_dim'],
                              params['video_feature_dim'], params['video_use_residual'], params['max_cap_length'])
 
     logger.info('*' * 100)
-    sys.stdout.flush()
+    sys.stdout.flush()  #在linux系统下刷新一秒输出了一个数字
     print(model)
     sys.stdout.flush()
     logger.info('*' * 100)
@@ -147,14 +148,14 @@ def construct_model(params, saver, logger):
 def main(params):
     logger = logging.getLogger(params['alias'])
     gpu_id = set_device(logger, params['gpu_id'])
-    logger = logging.getLogger(params['alias']+ '(%d)'%gpu_id)
-    saver = ModelSaver(params, os.path.abspath('./third_party/densevid_eval'))
+    logger = logging.getLogger(params['alias']+ '(%d)'%gpu_id)  # alias别名
+    saver = ModelSaver(params, os.path.abspath('./third_party/densevid_eval'))  #保存模型和评价结果的类
     model = construct_model(params, saver, logger)
 
     model = model.cuda()
 
     training_set = ANetDataSample(params['train_data'], params['feature_path'],
-                                  params['translator_path'], params['video_sample_rate'], logger)
+                                  params['translator_path'], params['video_sample_rate'], logger)  #video_sample_rate=2
     val_set = ANetDataFull(params['val_data'], params['feature_path'],
                            params['translator_path'], params['video_sample_rate'], logger)
     train_loader = DataLoader(training_set, batch_size=params['batch_size'], shuffle=True,
@@ -162,9 +163,11 @@ def main(params):
     val_loader = DataLoader(val_set, batch_size=params['batch_size'], shuffle=True,
                             num_workers=params['num_workers'], collate_fn=collate_fn, drop_last=True)
 
+    # weight_decay=1e-4 momentum=0.8
     optimizer = torch.optim.SGD(model.get_parameter_group(params),
                                 lr=params['lr'], weight_decay=params['weight_decay'], momentum=params['momentum'])
 
+    #lr_step=[20, 50, 70] lr_decay_rate=0.1
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
                                                         milestones=params['lr_step'], gamma=params["lr_decay_rate"])
     # eval(model, val_loader, params, logger, 0, saver)
@@ -174,9 +177,9 @@ def main(params):
         train(model, train_loader, params, logger, step, optimizer)
 
         # validation and saving
-        if step % params['test_interval'] == 0:
+        if step % params['test_interval'] == 0:   # test_interval=1
             eval(model, val_loader, params, logger, step, saver)
-        if step % params['save_model_interval'] == 0 and step != 0:
+        if step % params['save_model_interval'] == 0 and step != 0:  # save_model_interval=1 
             saver.save_model(model,step, {'step': step})
 
 if __name__ == '__main__':
@@ -220,7 +223,7 @@ if __name__ == '__main__':
     parser.add_argument('--rnn_dropout', type=float, default=0.3,
                         help='rnn_dropout')
     parser.add_argument('--video_sample_rate', type=int, default=2,
-                        help='video sample rate')
+                        help='video sample rate')  #在加载视频特征的过程中每隔两帧选择一次
     parser.add_argument('--attention_type', type=str, default='mean',
                         help='attention module used in encoding')
     parser.add_argument('--context_type', type=str, default='clr',
