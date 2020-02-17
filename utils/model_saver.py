@@ -29,19 +29,19 @@ class ModelSaver(object):
         :param evaluator_path: absolute path
         """
         self.params = params
-        self.root_folder = os.path.join(params['runs'], params['alias'])
+        self.root_folder = os.path.join(params['runs'], params['alias']) # runs/test/ 
         self.model_folder = os.path.join(self.root_folder, 'model')
         self.submits_folder = os.path.join(self.root_folder, 'submits')
         sys.path.append(evaluator_path)
-        self._init_saver()
-        self.time_format = '%m-%d-%H-%M-%S'
-        with open(os.path.join(self.root_folder, 'params.json'), 'w') as file:
+        self._init_saver()  # 创建文件夹
+        self.time_format = '%m-%d-%H-%M-%S'  
+        with open(os.path.join(self.root_folder, 'params.json'), 'w') as file:  #保存参数
             json.dump(params, file)
 
     def _init_saver(self):
         if os.path.exists(self.root_folder):
             if self.params['alias'].startswith('test'):
-                os.system('rm %s -rf'%self.root_folder)
+                os.system('rm %s -rf'%self.root_folder)   #清空文件夹下的内容
                 print('warning: remove test(%s) folder'%self.root_folder)
             else:
                 print('error: alias already in use, abort')
@@ -52,8 +52,9 @@ class ModelSaver(object):
             os.makedirs(self.model_folder)
         if not os.path.exists(self.submits_folder):
             os.makedirs(self.submits_folder)
-        self.eval_result_path = os.path.join(self.root_folder, 'eval_result.txt')
+        self.eval_result_path = os.path.join(self.root_folder, 'eval_result.txt')  #保存评价结果
 
+    # 保存评价结果
     def _dump_eval_result(self, file_name):
         temp_file = file_name + '.tmp'
         os.system('sh scripts/evaluate_helper.sh %s %s'%(
@@ -74,9 +75,11 @@ class ModelSaver(object):
         :param dynamic_params: dynamic params that used to reconstruct training process
         :return: None
         """
+        #time strftime() 函数接收以时间元组，并返回以可读字符串表示的当地时间，格式由参数format决定。
+        #time localtime() 函数类似gmtime()，作用是格式化时间戳为本地的时间。
         model_path = os.path.join(self.model_folder,
                             '%s_%05d_%s.ckp' % (self.params['alias'], step,
-                                                time.strftime(self.time_format, time.localtime())))
+                                                time.strftime(self.time_format, time.localtime()))) 
         torch.save({'state_dict': model.state_dict(),
                     'dynamic_params': dynamic_params,
                     'params': self.params},
@@ -100,7 +103,7 @@ class ModelSaver(object):
 
     def load_model_slcg(self, model_path):
         file_obj = torch.load(open(model_path, 'r'))
-        model_sl = file_obj['dynamic_params']['model_sl']
-        model_cg = file_obj['dynamic_params']['model_cg']
+        model_sl = file_obj['dynamic_params']['model_sl']   # sl:segment localization
+        model_cg = file_obj['dynamic_params']['model_cg']   # cg:caption generator
 
         return model_sl, model_cg, file_obj['params']
