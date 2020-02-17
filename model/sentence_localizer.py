@@ -29,7 +29,7 @@ class FeatureMixerType0(nn.Module):
             nn.Linear(hidden_dim*3, hidden_dim*3, bias=False),
             nn.BatchNorm1d(hidden_dim*3),
             nn.ReLU(),
-            nn.Dropout(p=dropout),
+            nn.Dropout(p=dropout),   #让部分神经元以一定的概率P停止工作
             nn.Linear(hidden_dim*3, hidden_dim*3, bias=False),
             nn.BatchNorm1d(hidden_dim*3),
             nn.ReLU(),
@@ -56,7 +56,24 @@ class FeatureMixerType0(nn.Module):
 
 
 class SentenceLocalizer(nn.Module):
+    """
+    attention_type_sl=type0  
+    regressor_scale=0.3  
+    feature_mixer_type=type0
+    video_use_residual=True 
+    sent_use_residual=False
+    pe_video=100
+    pe_sent=10 
+    ANCHOR_LIST = [
 
+    # more global component
+    [1./4, 1./2], [2./4, 1./2], [3./4, 1./2],  # 2, w=1/2
+    [1./6, 1./3], [3./6, 1./3], [5./6, 1./3],  #[1./3, 2./3], [2./3, 2./3], # 3, w=1/3
+    #  localize component
+    [1./16, 1./8], [3./16, 1./8], [5./16, 1./8], [7./16, 1./8], [9./16, 1./8], [11./16, 1./8], [13./16, 1./8], [15./16, 1./8], # 4, w=1./8
+    [1./2, 1.0]
+]
+    """    
     def __init__(self, hidden_dim, rnn_layer, rnn_cell, rnn_dropout, bidirectional, attention_type, scale,
                  sent_vocab_size, sent_embedding_dim, video_feature_dim, fc_dropout, anchor_list, feature_mixer_type,
                  video_use_residual, sent_use_residual, pe_video=100, pe_sent=20):
@@ -71,7 +88,7 @@ class SentenceLocalizer(nn.Module):
                                            bidirectional, rnn_dropout, video_use_residual)
 
         # text encoder
-        self.sent_embedding = nn.Embedding(sent_vocab_size, sent_embedding_dim)
+        self.sent_embedding = nn.Embedding(sent_vocab_size, sent_embedding_dim)  #(6000,512)
         self.text_encoder = RNNSeqEncoder(sent_embedding_dim, hidden_dim, rnn_cell, rnn_layer,
                                           bidirectional, rnn_dropout, sent_use_residual)
 
@@ -79,7 +96,7 @@ class SentenceLocalizer(nn.Module):
         resolved_hidden_dim = hidden_dim*rnn_layer*(2 if bidirectional else 1)
 
         # feature mixer TODO: add more feature mixer
-        assert feature_mixer_type == 'type0'
+        assert feature_mixer_type == 'type0'    # 参考论文公式(7),(8),(9)对编码后的特征进行融合
         attention_module = None
         if attention_type == 'mean':
             attention_module = AttentionMean
@@ -89,9 +106,9 @@ class SentenceLocalizer(nn.Module):
             attention_module = AttentionType1
         elif attention_type == 'type2':
             attention_module = AttentionType2
-        video_attention = attention_module(hidden_dim, resolved_hidden_dim, pe_video)
-        text_attention = attention_module(hidden_dim, resolved_hidden_dim, pe_sent)
-        self.feature_mixer = FeatureMixerType0(hidden_dim, video_attention, text_attention, fc_dropout)
+        video_attention = attention_module(hidden_dim, resolved_hidden_dim, pe_video)  #论文公式(7)
+        text_attention = attention_module(hidden_dim, resolved_hidden_dim, pe_sent)  #论文公式(8)
+        self.feature_mixer = FeatureMixerType0(hidden_dim, video_attention, text_attention, fc_dropout) #论文公式(9)
 
         # anchor predictor & refiner
         self.anchor = Variable(FloatTensor(anchor_list))  # anchor_number, 2
@@ -117,7 +134,7 @@ class SentenceLocalizer(nn.Module):
         video_feature, video_hidden = self.video_encoder(video_feat)
 
         # convert batch video to batch caption
-        video_feature = video_feature.index_select(dim=0, index=sent_gather_idx)
+        video_feature = video_feature.index_select(dim=0, index=sent_gather_idx) 
         video_hidden = video_hidden.index_select(dim=1, index=sent_gather_idx)
         video_seq_len, video_time_len = video_length.index_select(dim=0, index=sent_gather_idx).chunk(2, dim=1)
         video_seq_len = video_seq_len.contiguous().long()
@@ -127,23 +144,24 @@ class SentenceLocalizer(nn.Module):
         # fetch the last valid hidden state
         sz0, sz1, sz2, sz3 = video_hidden.size()
         video_last_hidden = video_hidden.gather(dim=2,
-            index=video_seq_len.view(1, -1, 1, 1).repeat(sz0, 1, 1, sz3)-1).squeeze(2)
+            index=video_seq_len.view(1, -1, 1, 1).repeat(sz0, 1, 1, sz3)-1).squeeze(2) #(1,B,hidden_size)
         sz0, sz1, sz2, sz3 = sent_hidden.size()
         sent_last_hidden = sent_hidden.gather(dim=2,
-            index=sent_length.view(1, -1, 1, 1).repeat(sz0, 1, 1, sz3)-1).squeeze(2)
+            index=sent_length.view(1, -1, 1, 1).repeat(sz0, 1, 1, sz3)-1).squeeze(2)  #(1,B,hidden_size)
 
         # mix features
-        video_last_hidden, sent_last_hidden = hidden_transpose(video_last_hidden), hidden_transpose(sent_last_hidden)
+        video_last_hidden, sent_last_hidden = hidden_transpose(video_last_hidden), hidden_transpose(sent_last_hidden) #(batch, hidden_dim)
         mixed_feature = self.feature_mixer(video_feature, video_last_hidden, video_mask,
                                            sent_feature, sent_last_hidden, sent_mask)
 
         # localizing & refining
         score = self.predictor(mixed_feature)
-        refining = (F.sigmoid(self.refiner(mixed_feature)) * self.scale).view(mixed_feature.size(0), -1, 2)  # (0, 2 * scale)
+        refining = (F.sigmoid(self.refiner(mixed_feature)) * self.scale).view(mixed_feature.size(0), -1, 2)  # (0, 2 * scale) scale=0.3
         # print(refining)
         delta_c, delta_w = refining.chunk(2, dim=2)  # batch, n_anchor, 1
         delta_c = delta_c - self.scale / 2 # delfa_c is normalized, while delta_w not(normalized delta_w leads into small segment)
         _, prediction = score.max(1)  # whether this step is differentiable?
+        # 选取得分最高的anchor
         anchor_c, anchor_w = self.anchor.index_select(index=prediction, dim=0).chunk(2, dim=1)  # batch, 1
         delta_c = delta_c.gather(dim=1, index=prediction.view(-1, 1, 1)).squeeze(1)  # batch, 1
         delta_w = delta_w.gather(dim=1, index=prediction.view(-1, 1, 1)).squeeze(1)  # batch, 1
