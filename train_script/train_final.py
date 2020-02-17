@@ -23,10 +23,16 @@ from pycocoevalcap.meteor.meteor import Meteor
 def remove_nonascii(text):
     return ''.join([i if ord(i) < 128 else ' ' for i in text])
 
-
+"""
+To allow our prediction to move between two distant locations efficiently, we first relax the
+regression problem to a classification task. Particularly, we evenly divide the input video into multiple
+anchor segments under multiple scales, and train a FC layer on thefcv to predict the best anchor
+that produces the highest Meteor score [32] of the generated caption sentence. We then conduct
+regression around the best anchor that gives the highest score. Formally, we attain
+"""
 class CaptionEvaluator(object):
 
-    def __init__(self, rtranslator):
+    def __init__(self, rtranslator):  # rtranslator=training_set
         self.tokenizer = PTBTokenizer()
         self.scorer = Meteor()
         self.rtranslator = rtranslator
@@ -51,12 +57,13 @@ class CaptionEvaluator(object):
         :param model_cg:
         :return:
         """
-        initial_anchors = params['anchor_list']
+        initial_anchors = params['anchor_list']   #预设一系列anchor
         n_anchors = len(initial_anchors)
 
         batch_size = video_feat.size(0)
-        ts_seq = Variable(FloatTensor(initial_anchors).repeat(batch_size, 1))
+        ts_seq = Variable(FloatTensor(initial_anchors).repeat(batch_size, 1))  #ts_seq is timestamp sequence
         ts_gather_idx = Variable(LongTensor(range(batch_size)).unsqueeze(1).repeat(1, n_anchors).view(-1))
+        #利用初始化anchor生成caption
         _, sent_pred, sent_len, sent_mask = model_cg.forward(video_feat, video_len, video_mask, ts_seq, ts_gather_idx)
         sent_pred = sent_pred.view(batch_size, n_anchors, -1)
         cur_res = {}
@@ -159,13 +166,14 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
         ts_seq = model_sl.forward_diff(
             video_feat, video_len, video_mask, sent_feat, sent_len, sent_mask, sent_gather_idx)
         # ts_seq = ts_seq + Variable(torch.rand(*ts_seq.size())).cuda() / 100
+        # 对应论文中的公式(5)
         ts_seq_noise = Variable(torch.rand(*ts_seq.size()) - 0.5).cuda() / 50 # (-0.01, 0.01)
-        ts_seq = ts_seq + ts_seq_noise
+        ts_seq = ts_seq + ts_seq_noise  # 为生成的segment添加高斯噪声
 
         # forward with cg
         caption_prob, caption_pred, caption_len, caption_mask = model_cg.forward(video_feat, video_len, video_mask, ts_seq, sent_gather_idx, sent_feat)
         ts_seq_new = model_sl.forward_diff(
-           video_feat, video_len, video_mask, caption_pred.detach(), sent_len, sent_mask, sent_gather_idx)
+           video_feat, video_len, video_mask, caption_pred.detach(), sent_len, sent_mask, sent_gather_idx)  #(B,2)
 
         # backward
         loss = model_cg.build_loss(caption_prob, sent_feat, sent_mask)  # caption loss
@@ -178,7 +186,7 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
 
         # statics
         accumulate_loss += loss.cpu().data[0]
-        if params['batch_log_interval'] != -1 and idx % params['batch_log_interval'] == 0:
+        if params['batch_log_interval'] != -1 and idx % params['batch_log_interval'] == 0:  # batch_log_interval=1
             logger.info('train: epoch[%05d], batch[%04d/%04d], elapsed time=%0.4fs, loss: %06.6f, %06.6f',
             # logger.info('train: epoch[%05d], batch[%04d/%04d], elapsed time=%0.4fs, loss: %06.6f',
                         # step, idx, len(data_loader), time.time() - batch_time, loss.cpu().data[0])
@@ -192,7 +200,7 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
 def train_sl(model_cg, model_sl, data_loader, evaluator, params, logger, step, optimizer):
 
     model_sl.train()
-    model_cg.eval()
+    model_cg.eval()  #在训练句子定位器时标题生成器不训练
     _start_time = time.time()
     accumulate_loss = 0
     accumulate_iou = 0
@@ -270,10 +278,11 @@ def eval(model_sl, model_cg, data_loader, logger, saver, params, step):
         _, sent_pred, sent_len, sent_mask = model_cg.forward(video_feat, video_len, video_mask, ts_seq, ts_gather_idx)
         refine_round = 0
 
+        # refine_round = 1 只需要迭代一轮即可
         while refine_round < params['refine_round']:
             new_ts_seq = model_sl.forward_eval(video_feat, video_len, video_mask,
                                                sent_pred, sent_len, sent_mask, ts_gather_idx)
-            ts_seq, ts_gather_idx = refine_temporal_segment(ts_seq, new_ts_seq, ts_gather_idx, params['iou_thres'])
+            ts_seq, ts_gather_idx = refine_temporal_segment(ts_seq, new_ts_seq, ts_gather_idx, params['iou_thres'])  # iou_thres = 0.9
             _, sent_pred, sent_len, sent_mask = model_cg.forward(video_feat, video_len, video_mask, ts_seq, ts_gather_idx)
             refine_round += 1
 
@@ -307,7 +316,16 @@ def construct_model(params, saver, logger):
     if params['checkpoint'] is not None:
         state_dict_sl, state_dict_cg, params_ = saver.load_model_slcg(params['checkpoint'])
         params['anchor_list'] = params_['anchor_list']
-
+    """
+    attention_type_sl=type0  
+    regressor_scale=0.3  
+    feature_mixer_type=type0
+    video_use_residual=True 
+    sent_use_residual=False
+    pe_video=100
+    pe_sent=10
+    
+    """    
     model_sl = SentenceLocalizer(params['hidden_dim'], params['rnn_layer'], params['rnn_cell'], params['rnn_dropout'],
                                  params['bidirectional'], params['attention_type_sl'], params['regressor_scale'],
                                  params['vocab_size'], params['sent_embedding_dim'], params['video_feature_dim'],
@@ -315,6 +333,11 @@ def construct_model(params, saver, logger):
                                  params['video_use_residual'], params['sent_use_residual'],
                                  params['pe_video'], params['pe_sent'])
 
+    """
+    attention_type_cg=mean 
+    context_type=clr 
+    softmax_scale=0.1
+    """
     model_cg = CaptionGenerator(params['hidden_dim'], params['rnn_layer'], params['rnn_cell'], params['rnn_dropout'],
                                 params['bidirectional'], params['attention_type_cg'], params['context_type'],
                                 params['softmask_scale'], params['vocab_size'], params['sent_embedding_dim'],
@@ -375,7 +398,7 @@ def main(params):
                                      lr=params['lr'], weight_decay=params['weight_decay'], momentum=params['momentum'])
 
     lr_scheduler_sl = torch.optim.lr_scheduler.MultiStepLR(optimizer_sl,
-                                                        milestones=params['lr_step'], gamma=params["lr_decay_rate"])
+                                                        milestones=params['lr_step'], gamma=params["lr_decay_rate"]) #lr_step=[1, 2, 20]
 
     lr_scheduler_cg = torch.optim.lr_scheduler.MultiStepLR(optimizer_cg,
                                                         milestones=params['lr_step'], gamma=params["lr_decay_rate"])
@@ -383,21 +406,21 @@ def main(params):
     evaluator = CaptionEvaluator(training_set)
     saver.save_model(model_sl, 0, {'step': 0, 'model_sl': model_sl.state_dict(), 'model_cg': model_cg.state_dict()})
     # eval(model_sl, model_cg, val_loader, logger, saver, params, -1)
-    for step in range(params['training_epoch']):
+    for step in range(params['training_epoch']):  # training_epoch is 25
         lr_scheduler_cg.step()
         lr_scheduler_sl.step()
 
-        if step < params['pretrain_epoch']:
+        if step < params['pretrain_epoch']:  # 对caption generator进行预训练，pretrain_epoch指示了预训练的轮数(default=0)
             pretrain_cg(model_cg, train_loader_cg, params, logger, step, optimizer_cg_n)
-        elif step % params['alter_step'] != 0:
+        elif step % params['alter_step'] != 0:  #因为标题生成和句子定位循环训练，alter_step指示交替训练的时间节点(default=5)
             train_cg(model_cg, model_sl, train_loader_cg, params, logger, step, optimizer_cg)
         else:
             train_sl(model_cg, model_sl, train_loader_sl, evaluator, params, logger, step, optimizer_sl)
 
         # validation and saving
-        if step % params['test_interval'] == 0:
+        if step % params['test_interval'] == 0:  #test_interval=1
             eval(model_sl, model_cg, val_loader, logger, saver, params, step)
-        if step % params['save_model_interval'] == 0 and step != 0:
+        if step % params['save_model_interval'] == 0 and step != 0: #save_model_interval=1
             saver.save_model(model_sl, step, {'step': step, 'model_sl': model_sl.state_dict(), 'model_cg': model_cg.state_dict()})
 
 
