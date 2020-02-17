@@ -19,16 +19,16 @@ def collate_fn(batch):
     max_caption_length = max(chain(*[[len(caption) for caption in captions] for captions in caption_list ]))
     total_caption_num = sum(chain([len(captions) for captions in caption_list ]))
 
-    video_tensor = torch.FloatTensor(batch_size, max_video_length, feature_size).zero_()
-    video_length = torch.FloatTensor(batch_size, 2).zero_()  # true length, sequence length
-    video_mask = torch.FloatTensor(batch_size, max_video_length, 1).zero_()
+    video_tensor = torch.FloatTensor(batch_size, max_video_length, feature_size).zero_()  #(B,T,C)
+    video_length = torch.FloatTensor(batch_size, 2).zero_()  # sequence length, true length
+    video_mask = torch.FloatTensor(batch_size, max_video_length, 1).zero_()  #(B,T,1)
 
     timestamps_tensor = torch.FloatTensor(total_caption_num, 2).zero_()
 
-    caption_tensor = torch.LongTensor(total_caption_num, max_caption_length).zero_() + EOS_ID
-    caption_length = torch.LongTensor(total_caption_num).zero_()
-    caption_mask = torch.FloatTensor(total_caption_num, max_caption_length, 1).zero_()
-    caption_gather_idx = torch.LongTensor(total_caption_num).zero_()
+    caption_tensor = torch.LongTensor(total_caption_num, max_caption_length).zero_() + EOS_ID  #EOS_ID=1 (N,L)
+    caption_length = torch.LongTensor(total_caption_num).zero_()  #(N)
+    caption_mask = torch.FloatTensor(total_caption_num, max_caption_length, 1).zero_()  #(N,L,1)
+    caption_gather_idx = torch.LongTensor(total_caption_num).zero_() #(N)
 
     total_caption_idx = 0
 
@@ -83,7 +83,7 @@ class ANetData(Dataset):
         
         self.translator = pickle.load(open(translator_pickle, 'r'))
         self.translator['word_to_id'] = defaultdict(lambda: len(self.translator['id_to_word'])-1,
-                                                    self.translator['word_to_id'])
+                                                    self.translator['word_to_id'])  #word_to_id:5999 id_to_word:6000
 
         logger.info('load translator, total_vocab: %d', len(self.translator['id_to_word']))
 
@@ -91,13 +91,13 @@ class ANetData(Dataset):
 
     def __len__(self):
         return len(self.keys)
-
+    # 对语句中的单词进行索引化
     def translate(self, sentence):
         sentence_split = sentence.replace('.', ' . ').replace(',', ' , ').lower().split()
         sentence_split = ['<bos>'] + sentence_split + ['<eos>']
         res = np.array([self.translator['word_to_id'][word] for word in sentence_split])
         return res
-
+    #将索引化后的句子翻译回来
     def rtranslate(self, sent_ids):
         assert sent_ids[0] == self.translator['word_to_id']['<bos>']
         sent_ids = sent_ids[1:]
@@ -112,15 +112,15 @@ class ANetData(Dataset):
     def process_time_step(self, duration, timestamps_list, feature_length):
         res = np.zeros([len(timestamps_list), 2])
         for idx, (start, end) in enumerate(timestamps_list):
-            start_, end_ = int(feature_length*start/duration), int(feature_length*end/duration)
+            start_, end_ = int(feature_length*start/duration), int(feature_length*end/duration)  #每一个特征点占总时长的百分比
             end_ = min(end_, feature_length-1)
-            res[idx] = np.array([start_, end_])
+            res[idx] = np.array([start_, end_])  #有效的开始和结束
         return res
 
     def __getitem__(self, idx):
         raise NotImplementedError()
 
-
+# 用于验证集
 class ANetDataFull(ANetData):
 
     def __init__(self, caption_file, feature_file, translator_pickle, feature_sample_rate, logger):
@@ -142,7 +142,7 @@ class ANetDataFull(ANetData):
         processed_timestamps = self.process_time_step(duration, timestamps, feature_obj.shape[0])
         return feature_obj, processed_timestamps, captioning, timestamps, duration, key
 
-
+#用于训练集
 class ANetDataSample(ANetData):
 
     def __init__(self, caption_file, feature_file, translator_pickle, feature_sample_rate, logger):
@@ -152,11 +152,12 @@ class ANetDataSample(ANetData):
     def __getitem__(self, idx):
         if isinstance(self.feature_file, str):
             self.feature_file = h5py.File(feature_file, 'r')
-        key = str(self.keys[idx])
+        key = str(self.keys[idx])  # 视频名称
+        
         feature_obj = self.feature_file[key]['c3d_features']
         feature_obj = feature_obj[::self.sample_rate, :]
         captioning = self.captioning[key]['sentences']
-
+        # 训练时每个视频随机选择一个idx
         idx = int(np.random.choice(range(len(captioning)), 1))
         captioning = [[np.array(self.translate(sent)) for sent in captioning][idx]]
         timestamps = [self.captioning[key]['timestamps'][idx]]
