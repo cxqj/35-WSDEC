@@ -32,7 +32,7 @@ class CaptionGenerator(nn.Module):
                                            bidirectional, rnn_dropout, video_use_residual)
 
         # resolved hidden for attention layer
-        resolved_hidden_dim = hidden_dim*rnn_layer*(2 if bidirectional else 1)
+        resolved_hidden_dim = hidden_dim*rnn_layer*(2 if bidirectional else 1) # 1024
 
         # soft_mask attention module
         attention = AttentionMask(hidden_dim, resolved_hidden_dim, attention_type, context_type, scale)  #用于解码器
@@ -56,24 +56,34 @@ class CaptionGenerator(nn.Module):
         """
 
         # feature encoding
-        video_feature, video_hidden = self.video_encoder(video_feat)  # video_feature:(B,T,512)  video_hidden:(directions*layers, batch, length, hidden_dim)
+        # video_feature: (B,T,512)
+        # video_hidden : (2,B,T,512)  2是因为有两层GRU，
+        video_feature, video_hidden = self.video_encoder(video_feat)  
 
-        # convert batch video to batch caption
+        # convert batch video to batch caption 选择seg_gather_idx对应的batch数据
         video_feature = video_feature.index_select(dim=0, index=seg_gather_idx)
         video_hidden = video_hidden.index_select(dim=1, index=seg_gather_idx)
         video_seq_len, _ = video_length.index_select(dim=0, index=seg_gather_idx).chunk(2, dim=1)
         video_seq_len = video_seq_len.contiguous()  # batch, 1
-        video_mask = video_mask.index_select(dim=0, index=seg_gather_idx)
+        video_mask = video_mask.index_select(dim=0, index=seg_gather_idx) #(B,T,1)
 
         # select decoder initial hidden state
-        end_index = self.end_index_extractor(temp_seg, video_seq_len)  # non-differential operation!!!
-        sz0, sz1, sz2, sz3 = video_hidden.size()   # (1,B,T,C)
-        gather_index = end_index.view(1, -1, 1, 1).expand(sz0, sz1, 1, sz3)
-        decoder_init_hidden = torch.gather(video_hidden, dim=2, index=gather_index).squeeze(2)
+        # 计算temp_seg对应的特征结束时间
+        end_index = self.end_index_extractor(temp_seg, video_seq_len)  # non-differential operation!!!  
+        sz0, sz1, sz2, sz3 = video_hidden.size()   # (num_layers,B,T,C) 
+        gather_index = end_index.view(1, -1, 1, 1).expand(sz0, sz1, 1, sz3)   #(2,B,1,512)
+        decoder_init_hidden = torch.gather(video_hidden, dim=2, index=gather_index).squeeze(2) # (2,B,512)
 
         # decoding
-        #video_feature = video_hidden[1, :, :, :]
-
+       """
+        video_feature: (B,T,512)
+        decoder_init_hidden: (2,B,512)
+        video_mask: (B,T,1)
+        return:
+            sent_prob: (B,seq_len,vocab_size)
+            sent_pred: (B,seq_len)
+           
+        """
         sent_prob, sent_pred, sent_len, sent_mask = self.decoder(video_feature, decoder_init_hidden, video_mask,
                                                                  temp_seg * video_seq_len, sent, beam_size)
 
@@ -107,9 +117,12 @@ class CaptionGenerator(nn.Module):
         :param caption_mask: (batch_size, length, 1)
         :return:
             loss
+        caption_prob: (4,53,500)
+        sent_feat: (4,53)
+        sent_mask: (4,53,1)
         """
         assert caption_prob.size(1) == ref_caption.size(1)
-        prob = caption_prob.gather(dim=2, index=ref_caption.unsqueeze(2))  # batch_size, length, 1
+        prob = caption_prob.gather(dim=2, index=ref_caption.unsqueeze(2))  # (B,53,1)
 
         return - (prob * caption_mask).sum() / prob.size(0)
         return - (prob * caption_mask).sum() / caption_mask.sum()
