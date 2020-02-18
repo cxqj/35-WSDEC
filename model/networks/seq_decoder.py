@@ -39,7 +39,7 @@ class RNNSeqDecoder(nn.Module):
     def forward(self, encoder_output, decoder_init_hidden, encoding_mask, temp_seg, ref_caption=None, beam_size=3):
         """
         :param encoder_output: (batch, length, feat_dim)
-        :param decoder_init_hidden: (~~, batch, hidden_dim)
+        :param decoder_init_hidden: (num_layers, batch, hidden_dim)
         :param encoding_mask: (batch, length, 1)
         :param temp_seg: (batch, 2)
         :param ref_caption: (batch, length_cap)
@@ -68,18 +68,18 @@ class RNNSeqDecoder(nn.Module):
         assert (ref_caption[:, -1] == EOS_ID).all(), 'the last work is supposed to be <eos>'
 
         # append <bos> to the output
-        output_prob.append(Variable(torch.zeros(batch_size, 1, self.vocab_size) + BOS_ID).cuda())
-        output_pred.append(Variable(torch.zeros(batch_size, 1)).long().cuda() + BOS_ID)
+        output_prob.append(Variable(torch.zeros(batch_size, 1, self.vocab_size) + BOS_ID).cuda()) # (B,1,vocab_size)
+        output_pred.append(Variable(torch.zeros(batch_size, 1)).long().cuda() + BOS_ID) # (B,1)
 
         for i in range(ref_caption.size(1) - 1): # the last word is not fed into the net
-            input_word_embedding = self.embedding(ref_caption[:, i]).unsqueeze(1)  # batch, 1, embedding_dim
-            context = self.attention_module(encoder_output, hidden_transpose(hidden), temp_seg, encoding_mask)
-            inputs = torch.cat([input_word_embedding, context.unsqueeze(1)], dim=2)  # batch, 1, ~
-            rnn_output, hidden = self.rnn_cell(inputs, hidden)
-            output = F.log_softmax(self.output_layer(rnn_output.squeeze(1)), dim=1)  # batch, vocab_size
-            output_prob.append(output.unsqueeze(1))
-            _, next_input_word = output.max(1)  # batch
-            output_pred.append(next_input_word.unsqueeze(1)) # batch, 1
+            input_word_embedding = self.embedding(ref_caption[:, i]).unsqueeze(1)  # (B, 1, 512)
+            context = self.attention_module(encoder_output, hidden_transpose(hidden), temp_seg, encoding_mask)   #(B,3*512)
+            inputs = torch.cat([input_word_embedding, context.unsqueeze(1)], dim=2)  # (B,1,2048)
+            rnn_output, hidden = self.rnn_cell(inputs, hidden)  # (B,1,512), (2,B,512)
+            output = F.log_softmax(self.output_layer(rnn_output.squeeze(1)), dim=1) # (B,500)
+            output_prob.append(output.unsqueeze(1)) #(B,1,500)
+            _, next_input_word = output.max(1)  # B
+            output_pred.append(next_input_word.unsqueeze(1)) # (B,1)
         return torch.cat(output_prob, dim=1), torch.cat(output_pred, dim=1), None, None
 
 
