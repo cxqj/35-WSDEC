@@ -31,11 +31,11 @@ class Attention(nn.Module):
 
 #对应论文公式(12)
 class AttentionMean(Attention):
-    def forward(self, feature, hidden, mask, pe_size=-1):
-        feature_masked_sum = torch.sum(feature * mask, dim=1)  # batch, feature_dim
-        feature_masked_weight = torch.sum(mask, dim=1) + DELTA  # batch, 1  DELTA=1e-4
+    def forward(self, feature, hidden, mask, pe_size=-1):  # (B,T,512) (B,1024) (B,T,1)
+        feature_masked_sum = torch.sum(feature * mask, dim=1)  # (B,512)
+        feature_masked_weight = torch.sum(mask, dim=1) + DELTA  # (B,1)  DELTA=1e-4
         res = feature_masked_sum / feature_masked_weight
-        return res, mask.squeeze(2)
+        return res, mask.squeeze(2)  # RES:(B,512) mask.squeeze:(B,T)
 
 #论文公式(7),(8)对视觉特征和语句特征进行attention
 class AttentionType0(Attention):
@@ -247,11 +247,17 @@ class AttentionMask(nn.Module):
         c_context, _ = self.attention_c(feature, hidden, mask * self.mask_c(mask_index, c, w))
         return torch.cat([l_context, c_context], dim=1)
 
+    """
+    feature : (B,T,C)
+    hidden: (B,num_layers*512)
+    segment: (B,2)
+    mask: (B,T,1)
+    """
     def _forwardclr(self, feature, hidden, segment, mask):
         batch_size, seq_len = feature.size(0), feature.size(1)
         c, w = segment.unsqueeze(2).chunk(2, dim=1)  # batch, 1, 1
-        mask_index = Variable(FloatTensor(range(seq_len)).expand(batch_size, seq_len).unsqueeze(2))  # batch_size, seq_len, 1
-        l_context, _ = self.attention_l(feature, hidden, mask * self.mask_l(mask_index, c, w))
-        r_context, _ = self.attention_r(feature, hidden, mask * self.mask_r(mask_index, c, w))
-        c_context, _ = self.attention_c(feature, hidden, mask * self.mask_c(mask_index, c, w))
-        return torch.cat([l_context, c_context, r_context], dim=1)
+        mask_index = Variable(FloatTensor(range(seq_len)).expand(batch_size, seq_len).unsqueeze(2))  # (batch_size, seq_len, 1)
+        l_context, _ = self.attention_l(feature, hidden, mask * self.mask_l(mask_index, c, w)) #(B,512)
+        r_context, _ = self.attention_r(feature, hidden, mask * self.mask_r(mask_index, c, w)) #(B,512)
+        c_context, _ = self.attention_c(feature, hidden, mask * self.mask_c(mask_index, c, w)) #(B,512)
+        return torch.cat([l_context, c_context, r_context], dim=1)  # (B,3*512)
