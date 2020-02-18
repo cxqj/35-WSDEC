@@ -9,10 +9,18 @@ from torch.utils.data import Dataset, DataLoader
 
 
 def collate_fn(batch):
-    "rearrange the data returned by the batch"
-
+    """rearrange the data returned by the batch
+    某一个sample包含的数据:
+       C3D特征： (T,C)
+       时间戳对应的特征的起止时间 ： [[40. 123.]]
+       索引化后的captioning: [0,64,17,....1]
+       时间戳： [[3.19,9.79]]
+       视频时长： 15.19
+       视频id ： v_xxxxx
+    """
+    
     batch_size = len(batch)
-    feature_size = batch[0][0].shape[1]
+    feature_size = batch[0][0].shape[1]  # 特征维度(500)
     feature_list, timestamps_list, caption_list, raw_timestamp, raw_duration, key = zip(*batch)
 
     max_video_length = max([x.shape[0] for x in feature_list])
@@ -20,15 +28,15 @@ def collate_fn(batch):
     total_caption_num = sum(chain([len(captions) for captions in caption_list ]))
 
     video_tensor = torch.FloatTensor(batch_size, max_video_length, feature_size).zero_()  #(B,T,C)
-    video_length = torch.FloatTensor(batch_size, 2).zero_()  # sequence length, true length
+    video_length = torch.FloatTensor(batch_size, 2).zero_()  # sequence length, true length 保存视频特征的有效长度和原始视频时长
     video_mask = torch.FloatTensor(batch_size, max_video_length, 1).zero_()  #(B,T,1)
 
-    timestamps_tensor = torch.FloatTensor(total_caption_num, 2).zero_()
+    timestamps_tensor = torch.FloatTensor(total_caption_num, 2).zero_()   # 一句caption对应一个timestamp
 
-    caption_tensor = torch.LongTensor(total_caption_num, max_caption_length).zero_() + EOS_ID  #EOS_ID=1 (N,L)
-    caption_length = torch.LongTensor(total_caption_num).zero_()  #(N)
+    caption_tensor = torch.LongTensor(total_caption_num, max_caption_length).zero_() + EOS_ID  #EOS_ID=1 全1的tensor [N,L]
+    caption_length = torch.LongTensor(total_caption_num).zero_()  #[0,...0]
     caption_mask = torch.FloatTensor(total_caption_num, max_caption_length, 1).zero_()  #(N,L,1)
-    caption_gather_idx = torch.LongTensor(total_caption_num).zero_() #(N)
+    caption_gather_idx = torch.LongTensor(total_caption_num).zero_() #[0,0,...0]
 
     total_caption_idx = 0
 
@@ -37,7 +45,7 @@ def collate_fn(batch):
         #video
         video_tensor[idx,:video_len,:] = torch.from_numpy(feature_list[idx])
         video_length[idx,0] = float(video_len)
-        video_length[idx,1] = raw_duration[idx]
+        video_length[idx,1] = raw_duration[idx]  # raw为视频的原始时长
         video_mask[idx, :video_len, 0] = 1
         # timestamps
         proposal_length = len(timestamps_list[idx])
@@ -110,11 +118,11 @@ class ANetData(Dataset):
         return ' '.join([self.translator['id_to_word'][idx] for idx in sent_ids])
 
     def process_time_step(self, duration, timestamps_list, feature_length):
-        res = np.zeros([len(timestamps_list), 2])
+        res = np.zeros([len(timestamps_list), 2])  #[[0.,0.]]
         for idx, (start, end) in enumerate(timestamps_list):
-            start_, end_ = int(feature_length*start/duration), int(feature_length*end/duration)  #每一个特征点占总时长的百分比
+            start_, end_ = int(feature_length*start/duration), int(feature_length*end/duration)  #计算时间戳对应的特征的起始和结束
             end_ = min(end_, feature_length-1)
-            res[idx] = np.array([start_, end_])  #有效的开始和结束
+            res[idx] = np.array([start_, end_])  #时间戳对应的特征的开始和结束 (40,123)
         return res
 
     def __getitem__(self, idx):
@@ -157,12 +165,13 @@ class ANetDataSample(ANetData):
         feature_obj = self.feature_file[key]['c3d_features']
         feature_obj = feature_obj[::self.sample_rate, :]
         captioning = self.captioning[key]['sentences']
-        # 训练时每个视频随机选择一个idx
+        
+        # 随机选择一个idx
         idx = int(np.random.choice(range(len(captioning)), 1))
-        captioning = [[np.array(self.translate(sent)) for sent in captioning][idx]]
-        timestamps = [self.captioning[key]['timestamps'][idx]]
+        captioning = [[np.array(self.translate(sent)) for sent in captioning][idx]]   # 将句子中的单词转换为索引 [0.64,...1]
+        timestamps = [self.captioning[key]['timestamps'][idx]]  # [[3.19,9.79]]
 
-        duration = self.captioning[key]['duration']
+        duration = self.captioning[key]['duration'] # 15.19
         processed_timestamps = self.process_time_step(duration, timestamps, feature_obj.shape[0])
         return feature_obj, processed_timestamps, captioning, timestamps, duration, key
 
