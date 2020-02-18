@@ -47,7 +47,7 @@ def hidden_transpose(hidden):
     """
     return hidden.transpose(0, 1).contiguous().view(hidden.size(1), -1)
 
-
+# 将坐标转换为中心点和宽度形式
 def se2cw(se):
     """
     :param se: (batch, 2)
