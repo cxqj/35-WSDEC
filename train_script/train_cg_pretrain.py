@@ -25,21 +25,30 @@ def train(model, data_loader, params, logger, step, optimizer):
 
     for idx, batch_data in enumerate(data_loader):
         batch_time = time.time()
-
-        # data pre processing
+        """
+        data pre processing
+        video_feat : (B,T,C)
+        video_len : (B,2)   # 2 for feature_len , duration
+        video_mask: (B,T,1)
+        sent_feat : (B,N)
+        sent_gather_idx : [0,1,...,B-1]
+        ts_seq: [43,123] 时间戳对应的特征起止时间
+        
+        """
+        
         video_feat, video_len, video_mask, sent_feat, sent_len, sent_mask, sent_gather_idx, _, ts_seq, _ = batch_data
         video_feat = Variable(video_feat.cuda())
         video_len = Variable(video_len.cuda())
         video_mask = Variable(video_mask.cuda())
         sent_feat = Variable(sent_feat.cuda())
         sent_len = Variable(sent_len.cuda())
-        sent_mask = Variable(sent_mask.cuda())
+        sent_mask = Variable(sent_mask.cuda())   # (B,N,1)
         sent_gather_idx = Variable(sent_gather_idx.cuda())
         ts_seq = Variable(FloatTensor(sent_gather_idx.size(0), 2))
         ts_seq[:, 0] = 0
-        ts_seq[:, 1] = 1
+        ts_seq[:, 1] = 1   # [[0,1],[0,1]]
         # forward
-        video_seq_len, _ = video_len.index_select(dim=0, index=sent_gather_idx).chunk(2, dim=1)  # (sequence length, true length)
+        video_seq_len, _ = video_len.index_select(dim=0, index=sent_gather_idx).chunk(2, dim=1)  # (sequence length, true length)  [[197],[152]]
         ts_seq = se2cw(ts_seq)  # normalized in (0, 1) cw format. 转换为中心点和宽度的格式
         caption_prob, _, _, _ = model.forward(video_feat, video_len, video_mask, ts_seq, sent_gather_idx, sent_feat)
 
@@ -78,8 +87,7 @@ def eval(model, data_loader, params, logger, step, saver):
 
     for idx, batch_data in enumerate(data_loader):
         batch_time = time.time()
-
-        # data pre processing
+      
         video_feat, video_len, video_mask, sent_feat, _, _, sent_gather_idx, ts_time, ts_seq, key = batch_data
         video_feat = Variable(video_feat.cuda())
         video_len = Variable(video_len.cuda())
@@ -167,7 +175,7 @@ def main(params):
     optimizer = torch.optim.SGD(model.get_parameter_group(params),
                                 lr=params['lr'], weight_decay=params['weight_decay'], momentum=params['momentum'])
 
-    #lr_step=[20, 50, 70] lr_decay_rate=0.1
+    #lr_step=[20, 50, 70] lr_decay_rate=0.1   当训练epoch达到milestones值时,初始学习率乘以gamma得到新的学习率;
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
                                                         milestones=params['lr_step'], gamma=params["lr_decay_rate"])
     # eval(model, val_loader, params, logger, 0, saver)
