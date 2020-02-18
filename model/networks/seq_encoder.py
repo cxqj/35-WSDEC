@@ -60,12 +60,12 @@ class RNNSeqEncoder(nn.Module):
         hidden = None
         self.rnn_cell.flatten_parameters() #flatten_parameters() in RNNs for contiguous memory
         for i in range(input_features.size(1)):
-            output, hidden = self.rnn_cell(input_features[:, i, :].unsqueeze(1), hidden)
+            output, hidden = self.rnn_cell(input_features[:, i, :].unsqueeze(1), hidden) # output:(B,1,512) hidden:(2,B,512)
             residual_output = self.linear(input_features[:, i, :].unsqueeze(1)) + output
             output_list.append(residual_output)
-            hidden_list.append(hidden.unsqueeze(2))  # batch, 1, ~ * hidden_dim
-        return torch.cat(output_list, dim=1), torch.cat(hidden_list, dim=2)
-
+            hidden_list.append(hidden.unsqueeze(2))  # [(2,B,1,512)]
+        return torch.cat(output_list, dim=1), torch.cat(hidden_list, dim=2)  # (B,T,512)/ (2,B,T,512)
+ 
     def _forward(self, input_features): 
         """
         :param input_features: (batch_size, seq_len, feature_dim)
