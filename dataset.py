@@ -63,7 +63,7 @@ def collate_fn(batch):
     # print((video_length[:,0] / video_length[:,1]).mean())
 
     return (video_tensor, video_length, video_mask,
-            caption_tensor, caption_length, caption_mask, caption_gather_idx,
+            caption_tensor, caption_length, caption_mask, caption_gather_idx,  # caption_gather_idx是用来指示当前caption属于哪一个batch
             raw_timestamp, timestamps_tensor, key)
 
 
