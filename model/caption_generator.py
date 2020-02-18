@@ -71,7 +71,7 @@ class CaptionGenerator(nn.Module):
         # 计算temp_seg对应的特征结束时间
         end_index = self.end_index_extractor(temp_seg, video_seq_len)  # non-differential operation!!!  
         sz0, sz1, sz2, sz3 = video_hidden.size()   # (num_layers,B,T,C) 
-        gather_index = end_index.view(1, -1, 1, 1).expand(sz0, sz1, 1, sz3)   #(2,B,1,512)
+        gather_index = end_index.view(1, -1, 1, 1).expand(sz0, sz1, 1, sz3)   #(2,B,1,512)  对得到的end_index进行复制
         decoder_init_hidden = torch.gather(video_hidden, dim=2, index=gather_index).squeeze(2) # (2,B,512)
 
         # decoding
