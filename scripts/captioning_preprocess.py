@@ -17,19 +17,19 @@ def build_vocab(video_caption_dict, params, logger=None):
     max_captioning_number = max([len(x['sentences']) for x in video_caption_dict.values()])
     total_video = len(all_annoations)
     logger.info('total captioned video: %d', total_video)
-    all_annoations = list(chain(*all_annoations))
+    all_annoations = list(chain(*all_annoations))   # chain模块是个好工具啊
     logger.info('total captioning sentence: %d', len(all_annoations))
     logger.info('average captioning per video: %f; max captioning number: %d',
                 len(all_annoations)/float(total_video), max_captioning_number)
     total_sentence = len(all_annoations)
-    all_annoations = ' '.join(all_annoations).replace('.', ' . ').replace(',', ' , ').lower().split()
+    all_annoations = ' '.join(all_annoations).replace('.', ' . ').replace(',', ' , ').lower().split()  # 分词
     logger.info('total words: %d', total_sentence)
     logger.info('average word number per sentence: %f', len(all_annoations) / total_sentence)
-    words = Counter(all_annoations)
+    words = Counter(all_annoations)   # 字典类型，统计所有单词出现的次数
     logger.info('total unique  words: %d', len(words))
-    words = {key:val for key, val in words.iteritems() if val > params['word_count_threshold']}
+    words = {key:val for key, val in words.iteritems() if val > params['word_count_threshold']}  
     logger.info('valid word size: %d', len(words))
-    count_pairs = sorted(words.items(), key=lambda x: (-x[1], x[0]))
+    count_pairs = sorted(words.items(), key=lambda x: (-x[1], x[0])) # 按出现次数排序 [('the',521),('.',434),...]
 
     words, _ = list(zip(*count_pairs))
     if params['vocab_size'] != -1 and len(words) > params['vocab_size']:
