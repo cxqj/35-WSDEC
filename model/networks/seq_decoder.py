@@ -95,19 +95,19 @@ class RNNSeqDecoder(nn.Module):
 
         batch_size = encoder_output.size(0)
         self.rnn_cell.flatten_parameters()
-        out_pred_target_list = list()  # [(batch, k),..]
-        out_pred_parent_list = list()  # [(batch, k),..]
-        candidate_score_dict = dict()  # [set()]
+        out_pred_target_list = list()  # [(batch, k),..]  记录得分结果
+        out_pred_parent_list = list()  # [(batch, k),..]  记录是target的结果属于哪一个beam_size
+        candidate_score_dict = dict()  # [set()]  # 全是-inf??
 
         current_scores = FloatTensor(batch_size, beam_size).zero_() # (B,3)
 
         # out_pred_target_list.append(Variable(torch.zeros(batch_size, beam_size).long().cuda()) + BOS_ID)  # append (batch_size, k) <bos> to the pred list
         # out_pred_parent_list.append(Variable(torch.zeros(batch_size, beam_size).long().cuda()) - 1)  # append (batch_size, k) -1 to the pred list
 
-        out_pred_target_list.append(Variable(torch.zeros(batch_size, beam_size).long()) + BOS_ID)  # append (batch_size, k) <bos> to the pred list
-        out_pred_parent_list.append(Variable(torch.zeros(batch_size, beam_size).long()) - 1)  # append (batch_size, k) -1 to the pred list
+        out_pred_target_list.append(Variable(torch.zeros(batch_size, beam_size).long()) + BOS_ID)  # (B,3)  [[0,0,0],...[0,0,0]]
+        out_pred_parent_list.append(Variable(torch.zeros(batch_size, beam_size).long()) - 1)  # (B,3) [[-1,-1,-1],...[-1,-1,-1]]
 
-        current_scores[:, 1:].fill_(-float('inf'))  # [0,-inf,-inf] (B,3)
+        current_scores[:, 1:].fill_(-float('inf'))  #(B,3) [[0,-inf,-inf],...[0,-inf,-inf]]]
         current_scores = Variable(current_scores)
         # convert the size of all input to beam_size
 
@@ -117,26 +117,26 @@ class RNNSeqDecoder(nn.Module):
         encoding_mask = encoding_mask.unsqueeze(1).repeat(1, beam_size, 1, 1).view(-1, encoding_mask.size(1), 1)  #(B*beam_size,T,1)
 
         # next_input_word = Variable(torch.LongTensor([BOS_ID]*batch_size*beam_size).cuda())  # batch*beam_size
-        next_input_word = Variable(torch.LongTensor([BOS_ID]*batch_size*beam_size))  # batch*beam_size
+        next_input_word = Variable(torch.LongTensor([BOS_ID]*batch_size*beam_size))  # B*beam_size [0,0,.....0]
 
         # forward beam_search
         for step in range(1, self.max_cap_length + 1):  # the first word is said to be <bos>
 
-            input_word_embedding = self.embedding(next_input_word).unsqueeze(1)  # (batch*beam_size, 1, embedding_dim)
+            input_word_embedding = self.embedding(next_input_word).unsqueeze(1)  # (B*beam_size, 1, 512)
 
-            context = self.attention_module(encoder_output, hidden_transpose(hidden), temp_seg, encoding_mask)  # (batch*beam_size, 1536)
-            inputs = torch.cat([input_word_embedding, context.unsqueeze(1)], dim=2)  # (batch*beam_size, 1, 2048)
-            rnn_output, hidden = self.rnn_cell(inputs, hidden)  # (batch*beam_size, 1, 512)   (2, batch*beam_size, 512)
-            output = F.log_softmax(self.output_layer(rnn_output.squeeze(1)), dim=1)  # (batch*beam_size, 500)
+            context = self.attention_module(encoder_output, hidden_transpose(hidden), temp_seg, encoding_mask)  # (B*beam_size, 1536)
+            inputs = torch.cat([input_word_embedding, context.unsqueeze(1)], dim=2)  # (B*beam_size, 1, 2048)
+            rnn_output, hidden = self.rnn_cell(inputs, hidden)  # (B*beam_size, 1, 512)   (2, B*beam_size, 512)
+            output = F.log_softmax(self.output_layer(rnn_output.squeeze(1)), dim=1)  # (B*beam_size, 500)
 
-            output_scores = output.view(batch_size, beam_size, -1) # (batch_size, beam_size, vocab_size)
-            output_scores = output_scores + current_scores.unsqueeze(2)  # batch_size, beam_size, self.vocab_size
-            current_scores, out_candidate = output_scores.view(batch_size, -1).topk(beam_size, dim=1)  # batch, beam*self.vocab_size  (value,index)
+            output_scores = output.view(batch_size, beam_size, -1) # (B, beam_size, 500)
+            output_scores = output_scores + current_scores.unsqueeze(2)  # (B,beam_size,500)  为什么要加上上一步的得分
+            current_scores, out_candidate = output_scores.view(batch_size, -1).topk(beam_size, dim=1)  # (B,beam_size)
 
-            next_input_word = (out_candidate % self.vocab_size).view(-1)  # batch*beam_size
-            parents = (out_candidate / self.vocab_size).view(batch_size, beam_size)  # (batch_size, beam_size)
-            hidden_gather_idx = parents.view(1, batch_size, beam_size, 1).expand(hidden.size(0), batch_size, beam_size, hidden.size(2))  # (2, batch_size, beam_size, 512)
-            hidden = hidden.view(-1, batch_size, beam_size, hidden.size(2)).gather(dim=2, index=hidden_gather_idx).view(-1, batch_size*beam_size, hidden.size(2))  # (2, batch_size*beam_size, 512)
+            next_input_word = (out_candidate % self.vocab_size).view(-1)  # (B*beam_size) 将得到的单词索引展开
+            parents = (out_candidate / self.vocab_size).view(batch_size, beam_size)  # (B, beam_size)  [[0,0,0],....,[0,0,0]]   这步操作是用来指示得到的candidate坐标属于哪一个beam_size用于接下来索引对应的隐状态
+            hidden_gather_idx = parents.view(1, batch_size, beam_size, 1).expand(hidden.size(0), batch_size, beam_size, hidden.size(2))  # (2, B, beam_size, 512)
+            hidden = hidden.view(-1, batch_size, beam_size, hidden.size(2)).gather(dim=2, index=hidden_gather_idx).view(-1, batch_size*beam_size, hidden.size(2))  # (2, B*beam_size, 512)
 
             out_pred_target_list.append(next_input_word.view(batch_size, beam_size))  # (batch_size,beam_size)
             out_pred_parent_list.append(parents)
@@ -144,7 +144,7 @@ class RNNSeqDecoder(nn.Module):
             end_mask = next_input_word.data.eq(EOS_ID)
             tmp = end_mask.nonzero().dim()
             if end_mask.nonzero().dim() > 0:
-                stored_scores = current_scores.clone()
+                stored_scores = current_scores.clone()  # (B,3)
                 # current_scores.data.masked_fill_(end_mask, -float('inf'))
                 # stored_scores.data.masked_fill_(end_mask == False, -float('inf'))
 
@@ -152,30 +152,30 @@ class RNNSeqDecoder(nn.Module):
                 stored_scores.view(-1).data.masked_fill_(end_mask == False, -float('inf'))
                 candidate_score_dict[step] = stored_scores
 
-        # back track
-        final_pred = list()  # (B,1)
+        # back track 先获取最后一步的最大啊结果再倒过来反推前面的
+        final_pred = list()
         # seq_length = Variable(torch.LongTensor(batch_size).zero_().cuda()) + 1
-        seq_length = Variable(torch.LongTensor(batch_size).zero_()) + 1  # [1,1,....1]
-        max_score, current_idx = current_scores.max(1)  # batch,
-        current_idx = current_idx.unsqueeze(1) # (batch,1)
+        seq_length = Variable(torch.LongTensor(batch_size).zero_()) + 1  # [1,1,1,1,1,1,1,1,1,1,1,1]
+        max_score, current_idx = current_scores.max(1)  # (B)
+        current_idx = current_idx.unsqueeze(1) # (B,1)
         # final_pred.append(Variable(torch.zeros(batch_size, 1).long().cuda()) + EOS_ID)
-        final_pred.append(Variable(torch.zeros(batch_size, 1).long()) + EOS_ID)
+        final_pred.append(Variable(torch.zeros(batch_size, 1).long()) + EOS_ID)  # [1],[1],[1]....[1]
         for step in range(self.max_cap_length, 0, -1):
             if step in candidate_score_dict:  # we find end index
-                max_score, true_idx = torch.cat([candidate_score_dict[step], max_score.unsqueeze(1)], dim=1).max(1)  # beam_size + 1
-                current_idx[true_idx != beam_size] = true_idx[true_idx != beam_size]
+                max_score, true_idx = torch.cat([candidate_score_dict[step], max_score.unsqueeze(1)], dim=1).max(1)  # (B,3) + (B,1)--> (B)     true_idx:[3,3,3,3,3,3,3,3,3,3,3,3]
+                current_idx[true_idx != beam_size] = true_idx[true_idx != beam_size]  # [0,0,0,....0]
                 seq_length[true_idx != beam_size] = 0
             final_pred.append(out_pred_target_list[step].gather(dim=1, index=current_idx))  # batch, 1
-            current_idx = out_pred_parent_list[step].gather(dim=1, index=current_idx)  # batch, 1
+            current_idx = out_pred_parent_list[step].gather(dim=1, index=current_idx)  # batch, 1  不断更新beam_size的索引
             seq_length = seq_length + 1
         final_pred.append(out_pred_target_list[0].gather(dim=1, index=current_idx))
         seq_length = seq_length + 1
-        final_pred = torch.cat(final_pred[::-1], dim=1)  # (B,seq_len+1)
+        final_pred = torch.cat(final_pred[::-1], dim=1)  # (B,seq_len+1)  倒序拼接 [0,x,x,x,....,1]
 
         # caption_mask = Variable(torch.LongTensor(batch_size, self.max_cap_length + 2).zero_().cuda())
-        caption_mask = Variable(torch.LongTensor(batch_size, self.max_cap_length + 2).zero_())
+        caption_mask = Variable(torch.LongTensor(batch_size, self.max_cap_length + 2).zero_())   # (B,max_cap_length+2)  全0
         # caption_mask_helper = Variable(torch.LongTensor(range(self.max_cap_length + 2)).unsqueeze(0).repeat(batch_size, 1).cuda())
-        caption_mask_helper = Variable(torch.LongTensor(range(self.max_cap_length + 2)).unsqueeze(0).repeat(batch_size, 1))
+        caption_mask_helper = Variable(torch.LongTensor(range(self.max_cap_length + 2)).unsqueeze(0).repeat(batch_size, 1)) # # (B,max_cap_length+2) [[0,1,....max_len-1],[0,1,....max_len-1],...]
         caption_mask[caption_mask_helper < seq_length.unsqueeze(1)] = 1
 
         return None, final_pred.detach(), seq_length.detach(), caption_mask.detach()
