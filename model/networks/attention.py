@@ -45,17 +45,17 @@ class AttentionType0(Attention):
     def __init__(self, feature_dim=None, hidden_dim=None, pe_size=-1):
         super(AttentionType0, self).__init__(feature_dim, hidden_dim, pe_size)
         self.linear = nn.Linear(feature_dim, hidden_dim, bias=False)  # the matrix W: feature_dim * hidden_dim
-
+    # feature:(6,22,512)  hidden: (6,1024) mask: (6,22,1)
     def forward(self, feature, hidden, mask):
-        alpha= self.linear(feature)  # batch, length, hidden_dim
-        alpha = alpha * (hidden.unsqueeze(1).expand_as(alpha))  # batch, length, hidden_dim
-        alpha = alpha.sum(2, keepdim=True) / sqrt(self.hidden_dim)  # batch, length, 1
+        alpha= self.linear(feature)  # (6,22,512)-->(6,22,1024)
+        alpha = alpha * (hidden.unsqueeze(1).expand_as(alpha))  # (6,22,1024)
+        alpha = alpha.sum(2, keepdim=True) / sqrt(self.hidden_dim)  # (6,22,1)
         mask_helper = torch.zeros_like(alpha)
-        mask_helper[mask == 0] = - float('inf')
-        alpha = alpha + mask_helper
-        alpha = F.softmax(alpha, dim=1)  # batch, length, 1
-        res = (alpha * feature).sum(1)  # batch, feature
-        return res, alpha.squeeze(2)
+        mask_helper[mask == 0] = - float('inf')  # (6,22,1)
+        alpha = alpha + mask_helper  # (6,22,1)
+        alpha = F.softmax(alpha, dim=1)  # (6,22,1)
+        res = (alpha * feature).sum(1)  # (6,512)
+        return res, alpha.squeeze(2)  # (6,512) , (6,22)
 
 
 class AttentionType1(Attention):
