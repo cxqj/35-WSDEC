@@ -48,12 +48,12 @@ class CaptionEvaluator(object):
         return self.build_loss_v1(sl_conf, video_feat, video_len, video_mask, sent_gd, model_cg)
 
     def build_loss_v1(self, sl_conf, video_feat, video_len, video_mask, sent_gd, model_cg):
-        """
-        :param sl_conf:         (batch, n_anchor)
-        :param sl_gather_idx:   (batch, )
-        :param video_feat:      (batch, ~, ~)
-        :param video_len:       (batch, 2)
-        :param video_mask:      (batch, ~, 1)
+       """
+        :param sl_conf:         (6, 15)
+        :param video_feat:      (6, 234, 500)
+        :param video_len:       (6, 2) for feat_len and duration
+        :param video_mask:      (6, 234, 1)
+        :param sent_gd:         (6, 22)
         :param model_cg:
         :return:
         """
@@ -64,7 +64,7 @@ class CaptionEvaluator(object):
         ts_seq = Variable(FloatTensor(initial_anchors).repeat(batch_size, 1))  #ts_seq is timestamp sequence
         ts_gather_idx = Variable(LongTensor(range(batch_size)).unsqueeze(1).repeat(1, n_anchors).view(-1))
         #利用初始化anchor生成caption
-        _, sent_pred, sent_len, sent_mask = model_cg.forward(video_feat, video_len, video_mask, ts_seq, ts_gather_idx)
+        _, sent_pred, sent_len, sent_mask = model_cg.forward(video_feat, video_len, video_mask, ts_seq, ts_gather_idx)  # (90,22)
         sent_pred = sent_pred.view(batch_size, n_anchors, -1)
         cur_res = {}
         cur_gts = {}
@@ -153,18 +153,18 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
 
         # data pre processing
         video_feat, video_len, video_mask, sent_feat, sent_len, sent_mask, sent_gather_idx, _, _ , _ = batch_data
-        video_feat = Variable(video_feat.cuda())
-        video_len = Variable(video_len.cuda())
-        video_mask = Variable(video_mask.cuda())
-        sent_feat = Variable(sent_feat.cuda())
-        sent_len = Variable(sent_len.cuda())
-        sent_mask = Variable(sent_mask.cuda())
-        sent_gather_idx = Variable(sent_gather_idx.cuda())
+        video_feat = Variable(video_feat.cuda())  # (4,234,500)
+        video_len = Variable(video_len.cuda())    # (4,2)
+        video_mask = Variable(video_mask.cuda())  # (4,234,1)
+        sent_feat = Variable(sent_feat.cuda())    # (4,22)
+        sent_len = Variable(sent_len.cuda())      # (4)
+        sent_mask = Variable(sent_mask.cuda())    # (4,22,1)
+        sent_gather_idx = Variable(sent_gather_idx.cuda())  # [0,1,2,3]
 
         # forward
         # forward with sl
         ts_seq = model_sl.forward_diff(
-            video_feat, video_len, video_mask, sent_feat, sent_len, sent_mask, sent_gather_idx)
+            video_feat, video_len, video_mask, sent_feat, sent_len, sent_mask, sent_gather_idx)  # (4,2)
         # ts_seq = ts_seq + Variable(torch.rand(*ts_seq.size())).cuda() / 100
         # 对应论文中的公式(5)
         ts_seq_noise = Variable(torch.rand(*ts_seq.size()) - 0.5).cuda() / 50 # (-0.01, 0.01)
