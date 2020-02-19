@@ -37,14 +37,16 @@ class FeatureMixerType0(nn.Module):
 
     def forward(self, video_encoding, video_last_hidden, video_mask, sent_encoding, sent_last_hidden, sent_mask):
         """
-        video_encoding: (batch, length1, feature_dim)
-        video_last_hidden: (batch, hidden_dim)
-        captions_encoding: (batch, length2, feature_dim)
-        captions_last_hidden: (batch, hidden_dim)
+        video_encoding: (6,234,512)
+        video_last_hidden: (6,1024)
+        video_mask: (6,234,1)
+        captions_encoding: (6,22,512)
+        captions_last_hidden: (6,1024)
+        sent_mask: (6,22,1)
         :return (batch, hidden_dim)
         """
-        text_context, _ = self.text_attention(sent_encoding, video_last_hidden, sent_mask)
-        video_context, _ = self.video_attention(video_encoding, sent_last_hidden, video_mask)
+        text_context, _ = self.text_attention(sent_encoding, video_last_hidden, sent_mask)   # (6,512) , (6,22)
+        video_context, _ = self.video_attention(video_encoding, sent_last_hidden, video_mask) # (6,512) , (6,234)
 
         text_context = self.text_batch_norm(text_context)
         video_context = self.video_batch_norm(video_context)
@@ -113,8 +115,8 @@ class SentenceLocalizer(nn.Module):
         # anchor predictor & refiner
         self.anchor = Variable(FloatTensor(anchor_list))  # anchor_number, 2
         anchor_number = self.anchor.size(0)
-        self.predictor = nn.Linear(hidden_dim*3, anchor_number)
-        self.refiner = nn.Linear(hidden_dim*3, 2*anchor_number)  # (c, w)
+        self.predictor = nn.Linear(hidden_dim*3, anchor_number)  # 预测每个预设anchor的得分
+        self.refiner = nn.Linear(hidden_dim*3, 2*anchor_number)  # (c, w) 预测每个预设anchor的偏移值 
 
     def forward(self, video_feat, video_length, video_mask, sent, sent_length, sent_mask, sent_gather_idx):
         """
@@ -129,48 +131,50 @@ class SentenceLocalizer(nn.Module):
         """
 
         # feature encoding
-        sent_embedding = self.sent_embedding(sent)
-        sent_feature, sent_hidden = self.text_encoder(sent_embedding)
-        video_feature, video_hidden = self.video_encoder(video_feat)
+        sent_embedding = self.sent_embedding(sent) # (6,22)-->(6,22,512)
+        sent_feature, sent_hidden = self.text_encoder(sent_embedding) # (6,22,512) / (2,6,22,512)
+        video_feature, video_hidden = self.video_encoder(video_feat)  # (6,234,512) / (2,6,234,512)
 
         # convert batch video to batch caption
         video_feature = video_feature.index_select(dim=0, index=sent_gather_idx) 
         video_hidden = video_hidden.index_select(dim=1, index=sent_gather_idx)
         video_seq_len, video_time_len = video_length.index_select(dim=0, index=sent_gather_idx).chunk(2, dim=1)
-        video_seq_len = video_seq_len.contiguous().long()
+        video_seq_len = video_seq_len.contiguous().long()  # (6,1)
         video_time_len = video_time_len.contiguous()
-        video_mask = video_mask.index_select(dim=0, index=sent_gather_idx)
+        video_mask = video_mask.index_select(dim=0, index=sent_gather_idx)  # (6,234,1)
 
-        # fetch the last valid hidden state
-        sz0, sz1, sz2, sz3 = video_hidden.size()
+        # fetch the last valid hidden state，取最后一个隐状态是因为最后一个隐状态包含了所有的信息
+        sz0, sz1, sz2, sz3 = video_hidden.size()  # 2,6,234,512
         video_last_hidden = video_hidden.gather(dim=2,
-            index=video_seq_len.view(1, -1, 1, 1).repeat(sz0, 1, 1, sz3)-1).squeeze(2) #(1,B,hidden_size)
+            index=video_seq_len.view(1, -1, 1, 1).repeat(sz0, 1, 1, sz3)-1).squeeze(2) # (2,6,512)
         sz0, sz1, sz2, sz3 = sent_hidden.size()
         sent_last_hidden = sent_hidden.gather(dim=2,
-            index=sent_length.view(1, -1, 1, 1).repeat(sz0, 1, 1, sz3)-1).squeeze(2)  #(1,B,hidden_size)
+            index=sent_length.view(1, -1, 1, 1).repeat(sz0, 1, 1, sz3)-1).squeeze(2)  # (2,6,512)
 
         # mix features
-        video_last_hidden, sent_last_hidden = hidden_transpose(video_last_hidden), hidden_transpose(sent_last_hidden) #(batch, hidden_dim)
+        video_last_hidden, sent_last_hidden = hidden_transpose(video_last_hidden), hidden_transpose(sent_last_hidden) # (2,6,512)-->(6,1024)
         mixed_feature = self.feature_mixer(video_feature, video_last_hidden, video_mask,
-                                           sent_feature, sent_last_hidden, sent_mask)
+                                           sent_feature, sent_last_hidden, sent_mask)  # (6,1536)
 
         # localizing & refining
-        score = self.predictor(mixed_feature)
-        refining = (F.sigmoid(self.refiner(mixed_feature)) * self.scale).view(mixed_feature.size(0), -1, 2)  # (0, 2 * scale) scale=0.3
+        score = self.predictor(mixed_feature)  # (6,1536)-->(6,15)
+        refining = (F.sigmoid(self.refiner(mixed_feature)) * self.scale).view(mixed_feature.size(0), -1, 2)  #(6,15,2) scale=0.3
         # print(refining)
-        delta_c, delta_w = refining.chunk(2, dim=2)  # batch, n_anchor, 1
+        delta_c, delta_w = refining.chunk(2, dim=2)  #(6,15,1), (6,15,1)
         delta_c = delta_c - self.scale / 2 # delfa_c is normalized, while delta_w not(normalized delta_w leads into small segment)
-        _, prediction = score.max(1)  # whether this step is differentiable?
+        _, prediction = score.max(1)  # whether this step is differentiable?  (6)  [14,13,3,5,8,10]
+        
+        
         # 选取得分最高的anchor
         anchor_c, anchor_w = self.anchor.index_select(index=prediction, dim=0).chunk(2, dim=1)  # batch, 1
         delta_c = delta_c.gather(dim=1, index=prediction.view(-1, 1, 1)).squeeze(1)  # batch, 1
         delta_w = delta_w.gather(dim=1, index=prediction.view(-1, 1, 1)).squeeze(1)  # batch, 1
-        final_c = anchor_c + delta_c
-        final_w = anchor_w + delta_w
+        final_c = anchor_c + delta_c # (6,1)
+        final_w = anchor_w + delta_w # (6,1)
 
-        final_prediction_time = self.segment_resolver(final_c, final_w, video_time_len)
+        final_prediction_time = self.segment_resolver(final_c, final_w, video_time_len) # (6,2)
 
-        return score, refining, final_prediction_time
+        return score, refining, final_prediction_time  # (6,15), (6,15,2), (6,2)
 
     def forward_eval(self, video_feat, video_length, video_mask, sent, sent_length, sent_mask, sent_gather_idx):
 
