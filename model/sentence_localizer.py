@@ -185,16 +185,17 @@ class SentenceLocalizer(nn.Module):
         # c, w = se2cw(ts_se).chunk(2, dim=1)
         # return torch.cat([c,w], dim=1)
 
+    # differential forward  为啥这样就是可微分的？？
     def forward_diff(self, video_feat, video_length, video_mask, sent, sent_length, sent_mask, sent_gather_idx):
-        score , refining, _ = self.forward(video_feat, video_length, video_mask, sent, sent_length, sent_mask, sent_gather_idx)
-        _, prediction = score.max(1)
-        delta_c, delta_w = refining.chunk(2, dim=2)  # batch, n_anchor, 1
-        anchor_c, anchor_w = self.anchor.index_select(index=prediction, dim=0).chunk(2, dim=1)  # batch, 1
-        delta_c = delta_c.gather(dim=1, index=prediction.view(-1, 1, 1)).squeeze(1)  # batch, 1
-        delta_w = delta_w.gather(dim=1, index=prediction.view(-1, 1, 1)).squeeze(1)  # batch, 1
-        final_c = anchor_c + delta_c
-        final_w = anchor_w + delta_w
-        return torch.cat([final_c, final_w], dim=1)  # batch, 2 & differential
+        score , refining, _ = self.forward(video_feat, video_length, video_mask, sent, sent_length, sent_mask, sent_gather_idx)  # (4,15), (4,15,2)
+        _, prediction = score.max(1)  # [10,13,10,9]
+        delta_c, delta_w = refining.chunk(2, dim=2)  # (4,15,1), (4,15,1)
+        anchor_c, anchor_w = self.anchor.index_select(index=prediction, dim=0).chunk(2, dim=1)  # (4, 1)
+        delta_c = delta_c.gather(dim=1, index=prediction.view(-1, 1, 1)).squeeze(1)  # (4, 1)
+        delta_w = delta_w.gather(dim=1, index=prediction.view(-1, 1, 1)).squeeze(1)  # (4, 1)
+        final_c = anchor_c + delta_c  # (4, 1)
+        final_w = anchor_w + delta_w  # (4, 1)
+        return torch.cat([final_c, final_w], dim=1)  # # (4, 2) & differential
 
     def get_parameter_group(self, params):
         return [
