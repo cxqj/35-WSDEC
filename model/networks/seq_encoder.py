@@ -78,10 +78,10 @@ class RNNSeqEncoder(nn.Module):
         hidden = None
         self.rnn_cell.flatten_parameters()
         for i in range(input_features.size(1)):
-            output, hidden = self.rnn_cell(input_features[:, i, :].unsqueeze(1), hidden)
+            output, hidden = self.rnn_cell(input_features[:, i, :].unsqueeze(1), hidden) # (6,1,512) / (2,6,512)
             output_list.append(output)
-            hidden_list.append(hidden.unsqueeze(2))  # batch, 1, ~ * hidden_dim
-        return torch.cat(output_list, dim=1), torch.cat(hidden_list, dim=2)
+            hidden_list.append(hidden.unsqueeze(2))  #(2,6,512)-->(2,6,1,512)
+        return torch.cat(output_list, dim=1), torch.cat(hidden_list, dim=2) # (6,22,512) / (2,6,22,512)
 
 
 class RNNSeqMaskEncoder(nn.Module):
