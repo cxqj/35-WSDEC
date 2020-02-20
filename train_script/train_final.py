@@ -76,13 +76,13 @@ class CaptionEvaluator(object):
         res = {i: {j: cur_res[i*n_anchors+j] for j in range(n_anchors)} for i in range(sent_gd.size(0))}
         gts = {i: {j: cur_gts[i] for j in range(n_anchors)} for i in range(sent_gd.size(0))}
 
-        scores = []
+        scores = []  # (6,15)
         for i in range(sent_gd.size(0)):
             score = self.evaluate(gts[i], res[i])
             scores.append(score)
 
-        approx_ground_truth = Variable(torch.from_numpy(np.array(scores).argmax(1)).cuda())
-        return F.cross_entropy(sl_conf, approx_ground_truth)
+        approx_ground_truth = Variable(torch.from_numpy(np.array(scores).argmax(1)).cuda())  # [10,0,0,1,1,0,1]
+        return F.cross_entropy(sl_conf, approx_ground_truth)  # sl_conf : (6,15)
 
 
 def pretrain_cg(model, data_loader, params, logger, step, optimizer):
@@ -164,7 +164,7 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
         # forward
         # forward with sl
         ts_seq = model_sl.forward_diff(
-            video_feat, video_len, video_mask, sent_feat, sent_len, sent_mask, sent_gather_idx)  # (4,2)
+            video_feat, video_len, video_mask, sent_feat, sent_len, sent_mask, sent_gather_idx)  # (4,2) (c,w) format
         # ts_seq = ts_seq + Variable(torch.rand(*ts_seq.size())).cuda() / 100
         # 对应论文中的公式(5)
         ts_seq_noise = Variable(torch.rand(*ts_seq.size()) - 0.5).cuda() / 50 # (-0.01, 0.01)
@@ -235,7 +235,7 @@ def train_sl(model_cg, model_sl, data_loader, evaluator, params, logger, step, o
         optimizer.step()
 
         # statics
-        miou = model_sl.compute_mean_iou(pred_time.data, ts_time.data)
+        miou = model_sl.compute_mean_iou(pred_time.data, ts_time.data) # pred_time:(6,2) ts_time:(6,2)
         accumulate_loss += loss.cpu().data[0]
         accumulate_iou += miou
         if params['batch_log_interval'] != -1 and idx % params['batch_log_interval'] == 0:
@@ -268,20 +268,20 @@ def eval(model_sl, model_cg, data_loader, logger, saver, params, step):
 
         # data pre processing
         video_feat, video_len, video_mask, _, _, _, _, _, _, key = batch_data
-        video_feat = Variable(video_feat.cuda())
-        video_len = Variable(video_len.cuda())
-        video_mask = Variable(video_mask.cuda())
+        video_feat = Variable(video_feat.cuda())  # (B,172,500)
+        video_len = Variable(video_len.cuda())    # (B,2)
+        video_mask = Variable(video_mask.cuda())  # (B,172,1)
 
         batch_size = video_feat.size(0)
-        ts_seq = Variable(FloatTensor(initial_anchors).repeat(batch_size, 1))
-        ts_gather_idx = Variable(LongTensor(range(batch_size)).unsqueeze(1).repeat(1, n_anchors).view(-1))
-        _, sent_pred, sent_len, sent_mask = model_cg.forward(video_feat, video_len, video_mask, ts_seq, ts_gather_idx)
+        ts_seq = Variable(FloatTensor(initial_anchors).repeat(batch_size, 1))  # (B*15,2)
+        ts_gather_idx = Variable(LongTensor(range(batch_size)).unsqueeze(1).repeat(1, n_anchors).view(-1))  # (B*15)
+        _, sent_pred, sent_len, sent_mask = model_cg.forward(video_feat, video_len, video_mask, ts_seq, ts_gather_idx) # _,(B*15,22),(B*15),(B*15,22)
         refine_round = 0
 
         # refine_round = 1 只需要迭代一轮即可
         while refine_round < params['refine_round']:
             new_ts_seq = model_sl.forward_eval(video_feat, video_len, video_mask,
-                                               sent_pred, sent_len, sent_mask, ts_gather_idx)
+                                               sent_pred, sent_len, sent_mask, ts_gather_idx) # (B*15,2)
             ts_seq, ts_gather_idx = refine_temporal_segment(ts_seq, new_ts_seq, ts_gather_idx, params['iou_thres'])  # iou_thres = 0.9
             _, sent_pred, sent_len, sent_mask = model_cg.forward(video_feat, video_len, video_mask, ts_seq, ts_gather_idx)
             refine_round += 1
@@ -291,7 +291,7 @@ def eval(model_sl, model_cg, data_loader, logger, saver, params, step):
                         idx, len(data_loader), time.time() - batch_time, ts_seq.size(0) * 1.0 / batch_size)
 
         accumulate_geneneration += ts_seq.size(0)
-        _, video_time_len = video_len.index_select(dim=0, index=ts_gather_idx).chunk(2, dim=1)
+        _, video_time_len = video_len.index_select(dim=0, index=ts_gather_idx).chunk(2, dim=1)  # video_time_len:真实长度
         pred_time = (cw2se(ts_seq) * video_time_len).cpu().data.numpy()
         pred_sent = sent_pred.cpu().data.numpy()
         for idx in range(len(ts_gather_idx)):
