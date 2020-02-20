@@ -82,7 +82,8 @@ class CaptionGenerator(nn.Module):
         return:
             sent_prob: (B,seq_len,vocab_size)
             sent_pred: (B,seq_len)
-           
+        video_seq_len:特征序列的长度
+        temp_seg:初始化的anchor
         """
         sent_prob, sent_pred, sent_len, sent_mask = self.decoder(video_feature, decoder_init_hidden, video_mask,
                                                                  temp_seg * video_seq_len, sent, beam_size)
