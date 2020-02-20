@@ -23,12 +23,10 @@ from pycocoevalcap.meteor.meteor import Meteor
 def remove_nonascii(text):
     return ''.join([i if ord(i) < 128 else ' ' for i in text])
 
+
 """
-To allow our prediction to move between two distant locations efficiently, we first relax the
-regression problem to a classification task. Particularly, we evenly divide the input video into multiple
-anchor segments under multiple scales, and train a FC layer on thefcv to predict the best anchor
-that produces the highest Meteor score [32] of the generated caption sentence. We then conduct
-regression around the best anchor that gives the highest score. Formally, we attain
+首先对定位器进行训练，在训练时假定caption生成器是已知最优的，由一对一假设可以推理，caption生成器生成的最优caption就是
+真实segment对应的caption,那个这样就有了ground truth
 """
 class CaptionEvaluator(object):
 
@@ -82,7 +80,7 @@ class CaptionEvaluator(object):
             scores.append(score)
 
         approx_ground_truth = Variable(torch.from_numpy(np.array(scores).argmax(1)).cuda())  # [10,0,0,1,1,0,1]
-        return F.cross_entropy(sl_conf, approx_ground_truth)  # sl_conf : (6,15)
+        return F.cross_entropy(sl_conf, approx_ground_truth)  # sl_conf : (6,15)  approx_ground_truth认为是gt
 
 
 def pretrain_cg(model, data_loader, params, logger, step, optimizer):
@@ -163,7 +161,7 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
 
         # forward
         # forward with sl
-        # 利用真实caption生成的segment,可以当作gt
+        # 真实值 
         ts_seq = model_sl.forward_diff(
             video_feat, video_len, video_mask, sent_feat, sent_len, sent_mask, sent_gather_idx)  # (4,2) (c,w) format
         # ts_seq = ts_seq + Variable(torch.rand(*ts_seq.size())).cuda() / 100
@@ -175,7 +173,7 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
         # 用有噪声的segment生成预测的caption
         caption_prob, caption_pred, caption_len, caption_mask = model_cg.forward(video_feat, video_len, video_mask, ts_seq, sent_gather_idx, sent_feat)
         
-        # 再用预测的caption生成新的segment
+        # 预测值
         ts_seq_new = model_sl.forward_diff(
            video_feat, video_len, video_mask, caption_pred.detach(), sent_len, sent_mask, sent_gather_idx)  #(B,2)
 
@@ -477,9 +475,9 @@ if __name__ == '__main__':
                          help='video sample rate')
     parser.add_argument('--attention_type_cg', type=str, default='mean',
                         help='attention module used in encoding')
-    parser.add_argument('--attention_type_sl', type=str, default='type0',
+    parser.add_argument('--attention_type_sl', type=str, default='type0',  
                         help='attention module used in encoding')
-    parser.add_argument('--context_type', type=str, default='clr',
+    parser.add_argument('--context_type', type=str, default='clr',  #计算center,left,right的attention 
                         help='context type: clr, cl c')
     parser.add_argument('--regressor_scale', type=float, default=0.3,
                         help='regressor scale, used to normalize the regressor head')
