@@ -163,6 +163,7 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
 
         # forward
         # forward with sl
+        # 利用真实caption生成的segment,可以当作gt
         ts_seq = model_sl.forward_diff(
             video_feat, video_len, video_mask, sent_feat, sent_len, sent_mask, sent_gather_idx)  # (4,2) (c,w) format
         # ts_seq = ts_seq + Variable(torch.rand(*ts_seq.size())).cuda() / 100
@@ -171,7 +172,10 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
         ts_seq = ts_seq + ts_seq_noise  # 为生成的segment添加高斯噪声
 
         # forward with cg
+        # 用有噪声的segment生成预测的caption
         caption_prob, caption_pred, caption_len, caption_mask = model_cg.forward(video_feat, video_len, video_mask, ts_seq, sent_gather_idx, sent_feat)
+        
+        # 再用预测的caption生成新的segment
         ts_seq_new = model_sl.forward_diff(
            video_feat, video_len, video_mask, caption_pred.detach(), sent_len, sent_mask, sent_gather_idx)  #(B,2)
 
