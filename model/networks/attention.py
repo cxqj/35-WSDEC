@@ -48,6 +48,7 @@ class AttentionType0(Attention):
     # feature:(6,22,512)  hidden: (6,1024) mask: (6,22,1)
     def forward(self, feature, hidden, mask):
         alpha= self.linear(feature)  # (6,22,512)-->(6,22,1024)
+        #所有的通道相加求平均得到每一维的权重
         alpha = alpha * (hidden.unsqueeze(1).expand_as(alpha))  # (6,22,1024)
         alpha = alpha.sum(2, keepdim=True) / sqrt(self.hidden_dim)  # (6,22,1)
         mask_helper = torch.zeros_like(alpha)
