@@ -49,7 +49,7 @@ class CaptionEvaluator(object):
        """
         :param sl_conf:         (6, 15)
         :param video_feat:      (6, 234, 500)
-        :param video_len:       (6, 2) for feat_len and duration
+        :param video_len:       (6, 2)  for feat_len and duration
         :param video_mask:      (6, 234, 1)
         :param sent_gd:         (6, 22)
         :param model_cg:
@@ -161,9 +161,9 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
 
         # forward
         # forward with sl
-        # 真实值 
+        # 真实值,因为sl已经训练过一轮一轮，因此认为它的结果可以近似为gt 
         ts_seq = model_sl.forward_diff(
-            video_feat, video_len, video_mask, sent_feat, sent_len, sent_mask, sent_gather_idx)  # (4,2) (c,w) format
+            video_feat, video_len, video_mask, sent_feat, sent_len, sent_mask, sent_gather_idx)  # (4,2) (c,w)&&(0,1)format
         # ts_seq = ts_seq + Variable(torch.rand(*ts_seq.size())).cuda() / 100
         # 对应论文中的公式(5)
         ts_seq_noise = Variable(torch.rand(*ts_seq.size()) - 0.5).cuda() / 50 # (-0.01, 0.01)
@@ -228,7 +228,7 @@ def train_sl(model_cg, model_sl, data_loader, evaluator, params, logger, step, o
 
         # forward
         confidence_logit, regressing_result, pred_time = model_sl.forward(video_feat, video_len, video_mask,
-            sent_feat, sent_len, sent_mask, sent_gather_idx)
+            sent_feat, sent_len, sent_mask, sent_gather_idx)  # (6,15), (6,15,2), (6,2) (s,e)格式
 
         # backward
         loss = evaluator.build_loss(confidence_logit, video_feat, video_len, video_mask, sent_feat, model_cg)
