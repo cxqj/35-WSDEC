@@ -185,7 +185,7 @@ class SentenceLocalizer(nn.Module):
         # c, w = se2cw(ts_se).chunk(2, dim=1)
         # return torch.cat([c,w], dim=1)
 
-    # differential forward  为啥这样就是可微分的？？
+    # differential forward  这种是中心点和宽度的形式，上面是开始和结束的形式
     def forward_diff(self, video_feat, video_length, video_mask, sent, sent_length, sent_mask, sent_gather_idx):
         score , refining, _ = self.forward(video_feat, video_length, video_mask, sent, sent_length, sent_mask, sent_gather_idx)  # (4,15), (4,15,2)
         _, prediction = score.max(1)  # [10,13,10,9]
@@ -306,11 +306,11 @@ class SentenceLocalizer(nn.Module):
         """
         assert not isinstance(seg1, Variable)
         assert not isinstance(seg2, Variable)
-        seg1_s, seg1_e = seg1.chunk(2, dim=1)  # batch, 1
-        seg2_s, seg2_e = seg2.chunk(2, dim=1)  # batch, 1
-        min_end, _ = torch.cat([seg1_e, seg2_e], dim=1).min(1)  # batch
-        max_end, _ = torch.cat([seg1_e, seg2_e], dim=1).max(1)
-        min_beg, _ = torch.cat([seg1_s, seg2_s], dim=1).min(1)
+        seg1_s, seg1_e = seg1.chunk(2, dim=1)  # (6,1)
+        seg2_s, seg2_e = seg2.chunk(2, dim=1)  # (6,1)
+        min_end, _ = torch.cat([seg1_e, seg2_e], dim=1).min(1)  # (6)
+        max_end, _ = torch.cat([seg1_e, seg2_e], dim=1).max(1)  
+        min_beg, _ = torch.cat([seg1_s, seg2_s], dim=1).min(1)  
         max_beg, _ = torch.cat([seg1_s, seg2_s], dim=1).max(1)
         intersection = min_end - max_beg
         intersection, _ = torch.stack([intersection, torch.zeros_like(intersection)], dim=1).max(1)  # batch
