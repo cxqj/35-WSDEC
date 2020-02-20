@@ -142,7 +142,7 @@ class ContextMaskC(nn.Module):
         :return:
             masks: Float (batch, length, 1)
         """
-        return F.sigmoid(self.scale * (index - c + w / 2)) - F.sigmoid(self.scale * (index - c - w / 2))
+        return F.sigmoid(self.scale * (index - c + w / 2)) - F.sigmoid(self.scale * (index - c - w / 2))  #scale是为了让sigmoid函数不陷入饱和区
 
 
 class ContextMaskL(nn.Module):
