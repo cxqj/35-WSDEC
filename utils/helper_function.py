@@ -106,7 +106,7 @@ def temporal_segment_merge(ts1, ts2):
     return torch.cat([s,e], dim=0)
 
 
-def refine_temporal_segment(ts_old, ts_new, ts_gather_idx, iou_thres):
+def refine_temporal_segment(ts_old, ts_new, ts_gather_idx, iou_thres): # iou_thres = 0.9
     """
     :param ts_old:          (batch, 2), cw format (0, 1)
     :param ts_new:          (batch, 2), cw format (0, 1)
@@ -115,12 +115,12 @@ def refine_temporal_segment(ts_old, ts_new, ts_gather_idx, iou_thres):
         ts_refined: (new_batch, 2)  ts:time segment
         ts_gather_idx_refined, (new_batch, )
     """
-    ts_new_se = cw2se(ts_new)
-    ts_old_se = cw2se(ts_old)
+    ts_new_se = cw2se(ts_new)  # (B*15,2)
+    ts_old_se = cw2se(ts_old)  # (B*15,2)
     ts_refined = dict()
-    ts_new_gather_idx = list()
+    ts_new_gather_idx = list() # [0,0,0,0,......1,1,1,1,1] (B*15)
 
-    for idx1, idx2 in enumerate(ts_gather_idx.cpu().data.numpy().tolist()):
+    for idx1, idx2 in enumerate(ts_gather_idx.cpu().data.numpy().tolist()): # idx1索引属于哪一个anchor,inx2索引属于哪一个batch
         if compute_iou(ts_new_se[idx1].unsqueeze(0), ts_old_se[idx1].unsqueeze(0)).mean().cpu().data[0] > 0.2:
             continue
         if idx2 not in ts_refined:
@@ -128,8 +128,8 @@ def refine_temporal_segment(ts_old, ts_new, ts_gather_idx, iou_thres):
             # ts_refined[idx2] = [Variable(FloatTensor([0, 1-DELTA])), ]  # add [0, 1] to avoid empty set
             ts_new_gather_idx.append(idx2)
         else:
-            ts_temp1 = torch.stack(ts_refined[idx2], dim=0)  # 已有的
-            ts_temp2 = ts_new_se[idx1].unsqueeze(0).expand_as(ts_temp1) # 新的
+            ts_temp1 = torch.stack(ts_refined[idx2], dim=0)  
+            ts_temp2 = ts_new_se[idx1].unsqueeze(0).expand_as(ts_temp1) 
             ious = compute_iou(ts_temp1, ts_temp2)  # batch
             max_iou, max_iou_idx = ious.max(0)
             max_iou, max_iou_idx = max_iou.cpu().data[0], max_iou_idx.cpu().data[0]
