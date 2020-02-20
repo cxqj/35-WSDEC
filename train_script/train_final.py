@@ -161,7 +161,7 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
 
         # forward
         # forward with sl
-        # 真实值,因为sl已经训练过一轮一轮，因此认为它的结果可以近似为gt 
+        # 真实值,因为sl已经训练过一轮一轮，因此认为它的结果可以近似为gt,当中初始判定条件 
         ts_seq = model_sl.forward_diff(
             video_feat, video_len, video_mask, sent_feat, sent_len, sent_mask, sent_gather_idx)  # (4,2) (c,w)&&(0,1)format
         # ts_seq = ts_seq + Variable(torch.rand(*ts_seq.size())).cuda() / 100
@@ -198,7 +198,13 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
                 step, time.time() - _start_time, accumulate_loss / len(data_loader))
     logger.info('*'*100)
 
-
+"""
+we further train the sentence localizer to predict the best anchor segment
+by adding a soft-max layer on the mixed feature fcv in Eq. (9). We define the one-hot label as
+y = [y1, · · · , yNa ] where yj = 1 if the j-th anchor segment is the best one, otherwise yj = 0.
+Suppose our prediction output is p = [p1, · · · , pNa ] by the soft-max layer. The classification loss is
+formulated as
+"""
 def train_sl(model_cg, model_sl, data_loader, evaluator, params, logger, step, optimizer):
 
     model_sl.train()
