@@ -174,7 +174,7 @@ class SentenceLocalizer(nn.Module):
 
         final_prediction_time = self.segment_resolver(final_c, final_w, video_time_len) # (6,2)
 
-        return score, refining, final_prediction_time  # (6,15), (6,15,2), (6,2)
+        return score, refining, final_prediction_time  # (6,15), (6,15,2), (6,2) (s,e)格式
 
     def forward_eval(self, video_feat, video_length, video_mask, sent, sent_length, sent_mask, sent_gather_idx):
 
