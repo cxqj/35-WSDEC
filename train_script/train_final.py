@@ -199,11 +199,13 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
     logger.info('*'*100)
 
 """
-we further train the sentence localizer to predict the best anchor segment
-by adding a soft-max layer on the mixed feature fcv in Eq. (9). We define the one-hot label as
-y = [y1, · · · , yNa ] where yj = 1 if the j-th anchor segment is the best one, otherwise yj = 0.
-Suppose our prediction output is p = [p1, · · · , pNa ] by the soft-max layer. The classification loss is
-formulated as
+训练语句定位器的思想：
+    1.首先将caption生成器的参数固定，因为caption生成器事先进行了预训练此使认为caption模块的生成效果还可以
+    2.在生成定位结果的过程中，主要涉及到caption特征和视频特征的融合，对于融合后的特征通过全连接层预测15个预设anchor的得分和回值值
+      选取其中最大得分概率的anchor作为预测结果
+    3.对于预测得到的15个anchor得分结果，怎么去计算loss呢，此时可以通过caption模块按照预设anchor生成语句结果，通过将生成的语句和真实语句对比
+      得分最高的那个anchor可以近似为实际的anchor
+    4.有了预测anchor得分和近似的gt就可以计算loss了
 """
 def train_sl(model_cg, model_sl, data_loader, evaluator, params, logger, step, optimizer):
 
