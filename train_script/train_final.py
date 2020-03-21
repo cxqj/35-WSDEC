@@ -132,7 +132,7 @@ def pretrain_cg(model, data_loader, params, logger, step, optimizer):
                 step, time.time() - _start_time, accumulate_loss / len(data_loader))
     logger.info('*'*100)
 
-
+# 这一部分代码没看懂，重构误差有问题
 def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
     model_cg.train()
     model_sl.train()
@@ -161,7 +161,6 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
 
         # forward
         # forward with sl
-        # 真实值,因为sl已经训练过一轮一轮，因此认为它的结果可以近似为gt,当中初始判定条件 
         ts_seq = model_sl.forward_diff(
             video_feat, video_len, video_mask, sent_feat, sent_len, sent_mask, sent_gather_idx)  # (4,2) (c,w)&&(0,1)format
         # ts_seq = ts_seq + Variable(torch.rand(*ts_seq.size())).cuda() / 100
@@ -170,10 +169,8 @@ def train_cg(model_cg, model_sl, data_loader, params, logger, step, optimizer):
         ts_seq = ts_seq + ts_seq_noise  # 为生成的segment添加高斯噪声
 
         # forward with cg
-        # 用有噪声的segment生成预测的caption
         caption_prob, caption_pred, caption_len, caption_mask = model_cg.forward(video_feat, video_len, video_mask, ts_seq, sent_gather_idx, sent_feat)
         
-        # 预测值
         ts_seq_new = model_sl.forward_diff(
            video_feat, video_len, video_mask, caption_pred.detach(), sent_len, sent_mask, sent_gather_idx)  #(B,2)
 
