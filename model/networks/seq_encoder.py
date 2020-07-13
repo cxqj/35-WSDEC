@@ -19,7 +19,7 @@ class RNNSeqEncoder(nn.Module):
         :param input_dim: 500
         :param hidden_dim: 512
         :param rnn_cell: gru
-        :param n_layers: 1
+        :param n_layers: 2
         :param rnn_dropout: 0.3
         :param use_residual: True
         """
