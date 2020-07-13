@@ -193,3 +193,4 @@ class RNNSeqDecoder(nn.Module):
         caption_mask[caption_mask_helper < seq_length.unsqueeze(1)] = 1
 
         return None, final_pred.detach(), seq_length.detach(), caption_mask.detach()
+    
